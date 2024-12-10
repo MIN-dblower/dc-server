@@ -1,12 +1,9 @@
+import { JDpower } from "./service/jdpower";
 
-import puppeteer from 'puppeteer';
-
-(async () => {
-  const browser = await puppeteer.launch({ headless: false, args: ['--no-sandbox', '--disable-setuid-sandbox'], });
-
-  const page = await browser.newPage();
-
-  await page.goto('https://www.jdpower.com/cars/vin-lookup-and-decoder');
-
-  browser.close();
-})();
+async function main(){
+  const jdpower = new JDpower('WMWLV7C00L2L81812');
+  const data = await jdpower.getData();
+  const result = jdpower.parseText(data);
+  console.log(result);
+}
+main();
