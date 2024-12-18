@@ -36,7 +36,8 @@ export class Window {
         const options = {
             defaultViewport: null,
             args: [
-                "--start-maximized"
+                // "--start-maximized",
+                '--proxy-server=173.208.239.42:17093'
             ],
             headless: this.headless,
             devtools: false
@@ -50,6 +51,10 @@ export class Window {
         // const pages = await this.browser.pages();
         // this.page = pages[0];
         this.page = await this.browser.newPage();
+        await this.page.authenticate({
+            username: '14af3537cb24d',
+            password: 'd8213aad9a'
+        })
         // await this.page.goto("chrome://settings/");
         await this.page.evaluate(() => {
             document.body.style.zoom = '0.5';
@@ -70,7 +75,7 @@ export class Window {
     }
     async navigate(path: string) {
         if (this.page === null) return;
-        await this.page.goto(path, { waitUntil: 'networkidle0' });
+        await this.page.goto(path, { waitUntil: 'networkidle2' });
     }
     async input(selector: string, text: string, delay: number = 0) {
         if (this.page === null) return;

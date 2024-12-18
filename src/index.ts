@@ -5,5 +5,6 @@ async function main(){
   const data = await jdpower.getData();
   const result = jdpower.parseText(data);
   console.log(result);
+  await jdpower.exit()
 }
 main();

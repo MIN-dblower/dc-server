@@ -4,39 +4,45 @@ import { Window } from "../class/window";
 export class JDpower {
     vin: string;
     window: Window;
+    screenshotDir: string;
     constructor(vin: string,) {
         this.vin = vin;
-        this.window = new Window();
+        this.window = new Window(true);
+        this.screenshotDir = 'screenshots/jdpower/';
     }
     async getData() {
         const page = await this.window.connect();
-        await this.window.navigate('https://www.jdpower.com/cars/vin-lookup-and-decoder')
-        await page.screenshot({ path: 'screenshot.png' });
+        // return;
+        await page.goto('https://www.jdpower.com/cars/vin-lookup-and-decoder', {
+            waitUntil: 'domcontentloaded',
+        })
+        await page.screenshot({ path: this.screenshotDir + '1.png' });
         console.log('Page Loaded');
         await this.window.input('#VIN', this.vin, 10);
         console.log('VIN entered');
+        await page.screenshot({ path: this.screenshotDir + '2.png' });
         const buttonHandle = await page.$x("//button[normalize-space()='Check VIN']");
 
         // Click the button if it exists  
         if (buttonHandle && buttonHandle.length > 0) {
-            await Promise.all([buttonHandle[0].click(), page.waitForNavigation({ waitUntil: 'networkidle2' })]);
+            await Promise.all([page.waitForXPath("//button[normalize-space()='Check VIN']"), buttonHandle[0].click(), page.waitForNavigation({ waitUntil: 'load' })]);
         } else {
             console.log("Button not found.");
         }
-
+        await page.screenshot({ path: this.screenshotDir + '3.png' });
         const specLinkHandler = await page.$x("//a[contains(text(), 'See Full Specs')]");
         if (specLinkHandler.length) {
             await specLinkHandler[0].press('Enter');
             // const text = await specLinkHandler[0].
-            await Promise.all([page.evaluate(b => b.click(), specLinkHandler[0]), page.waitForNavigation({ waitUntil: 'networkidle2' })]);
+            await Promise.all([page.waitForXPath("//a[contains(text(), 'See Full Specs')]"), page.evaluate(b => b.click(), specLinkHandler[0]), page.waitForNavigation({ waitUntil: 'load' })]);
         } else {
             console.log('Link not found');
         }
         console.log('Specs Page');
-
+        await page.screenshot({ path: this.screenshotDir + '4.png' });
         const tabHandler = await page.$$("button#scrollable-auto-tab-0");
         if (tabHandler.length) {
-            await Promise.all([tabHandler[0].click(), page.waitForNavigation()]);
+            await Promise.all([page.waitForSelector("button#scrollable-auto-tab-0"), tabHandler[0].click(), page.waitForNavigation()]);
         } else {
             console.log('Tab not found');
         }
@@ -45,6 +51,9 @@ export class JDpower {
         return pageText;
 
 
+    }
+    async exit(){
+        await this.window.disconnect();
     }
     parseText(text: string) {
         const $ = cheerio.load(text);
