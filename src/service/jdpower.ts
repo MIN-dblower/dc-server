@@ -7,25 +7,25 @@ export class JDpower {
     screenshotDir: string;
     constructor(vin: string,) {
         this.vin = vin;
-        this.window = new Window(true);
+        this.window = new Window();
         this.screenshotDir = 'screenshots/jdpower/';
     }
     async getData() {
         const page = await this.window.connect();
         // return;
         await page.goto('https://www.jdpower.com/cars/vin-lookup-and-decoder', {
-            waitUntil: 'domcontentloaded',
+            waitUntil: 'networkidle2',
         })
         await page.screenshot({ path: this.screenshotDir + '1.png' });
         console.log('Page Loaded');
-        await this.window.input('#VIN', this.vin, 10);
+        await page.type('#VIN', this.vin);
         console.log('VIN entered');
         await page.screenshot({ path: this.screenshotDir + '2.png' });
         const buttonHandle = await page.$x("//button[normalize-space()='Check VIN']");
 
         // Click the button if it exists  
         if (buttonHandle && buttonHandle.length > 0) {
-            await Promise.all([page.waitForXPath("//button[normalize-space()='Check VIN']"), buttonHandle[0].click(), page.waitForNavigation({ waitUntil: 'load' })]);
+            await Promise.all([page.waitForXPath("//button[normalize-space()='Check VIN']"), buttonHandle[0].click(), page.waitForNavigation({ waitUntil: 'networkidle0' })]);
         } else {
             console.log("Button not found.");
         }
@@ -34,7 +34,7 @@ export class JDpower {
         if (specLinkHandler.length) {
             await specLinkHandler[0].press('Enter');
             // const text = await specLinkHandler[0].
-            await Promise.all([page.waitForXPath("//a[contains(text(), 'See Full Specs')]"), page.evaluate(b => b.click(), specLinkHandler[0]), page.waitForNavigation({ waitUntil: 'load' })]);
+            await Promise.all([page.waitForXPath("//a[contains(text(), 'See Full Specs')]"), page.evaluate(b => b.click(), specLinkHandler[0]), page.waitForNavigation({ waitUntil: 'networkidle0' })]);
         } else {
             console.log('Link not found');
         }
