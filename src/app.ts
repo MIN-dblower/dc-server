@@ -15,7 +15,7 @@ app.use(express.json());
 app.post('/getBook', async (req: any, res: any) => {
     const { vin, odometer, prompts } = req.body;
     try {
-        userPromptSchema.parse(prompts);
+        userPromptSchema.parse(prompts || []);
     } catch {
         res.status(400).json({
             status: "failed",
@@ -25,7 +25,7 @@ app.post('/getBook', async (req: any, res: any) => {
     }
     if (!isPending) {
         isPending = true;
-        const data = await scraper.getData(page, vin, { odometer: odometer ? parseInt(odometer) : undefined });
+        const data = await scraper.getData(page, vin, { odometer: odometer ? parseInt(odometer) : undefined, prompts });
         res.status(200).json({
             data
         })

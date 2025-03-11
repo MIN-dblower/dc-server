@@ -448,7 +448,15 @@ export class DataCenterScraper {
         page,
         vin,
         tokens.userAccessToken,
-        [],
+        (data.prompts || []).map(el => ({
+          book: el.book,
+          isBlank: null,
+          addDeduct: el.type === 'checkbox' ? el.items.map(il => ({
+            code: il.id,
+            action: il.isChecked ? 0 : 1,
+          })) : [],
+          modelId: el.type === 'select' ? el.id : undefined,
+        })),
       );
       if (question) return { question };
       const vehicleMeta = {
@@ -687,7 +695,8 @@ export class DataCenterScraper {
           },
         },
       );
-      console.log(JSON.stringify(buildMatchingData, null, 2));
+      const locationPreset = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 5000];
+      let locationIndex = 4;
       const filters = {
         bodyStyles: [],
         driveTrains: [],
@@ -705,7 +714,7 @@ export class DataCenterScraper {
         odometerMax: data.odometer + 15000,
         odometerMin: data.odometer - 15000,
         packages: [],
-        radiusInMiles: 5000,
+        radiusInMiles: 0,
         transmissions: [],
         trims: buildMatchingData.optionCollection.trims.map(
           (el: any) => el.name,
@@ -745,19 +754,51 @@ export class DataCenterScraper {
         equipment: vehicleMeta.equipmentCodes,
         equipmentIds: vehicleMeta.equipmentIds,
       };
+
       console.log(filters);
-      const marketLookupData = await sendAPIRequest(
-        page,
-        'https://app.dealercenter.net/api-gateway/inventory/MarketData/GetFilterLookupData',
-        'POST',
-        { Authorization: `Bearer ${tokens.userAccessToken}` },
-        {
-          filters,
-          maxDigitalPriceLockType: null,
-          vehicleInfo,
-        },
-      );
-      console.log(marketLookupData.listings);
+      let previousCount = -1;
+      do {
+        filters.radiusInMiles = locationPreset[locationIndex];
+        console.log('Milage: ', locationPreset[locationIndex])
+        const marketLookupData = await sendAPIRequest(
+          page,
+          'https://app.dealercenter.net/api-gateway/inventory/MarketData/GetFilterLookupData',
+          'POST',
+          { Authorization: `Bearer ${tokens.userAccessToken}` },
+          {
+            filters,
+            maxDigitalPriceLockType: null,
+            vehicleInfo,
+          },
+        );
+        const count = marketLookupData.listings.reduce((sum: number, item: any) => sum + item.count, 0);
+        console.log('Result: ', count)
+        if (previousCount === -1) previousCount = count;
+        if (count >= 10 && count < 20) {
+          // this is an ideal case.
+          break;
+        }
+        if (previousCount > 20 && count < 10) {
+          locationIndex += 1;
+          filters.radiusInMiles = locationPreset[locationIndex];
+          break;
+        }
+        if (previousCount < 9 && count > 20) {
+          locationIndex -= 1;
+          filters.radiusInMiles = locationPreset[locationIndex];
+          break;
+        }
+        if (previousCount < 10 && count < 10) {
+          if (locationIndex < locationPreset.length - 1) locationIndex += 1;
+          else break;
+        };
+        if (previousCount > 20 && count > 20) {
+          if (locationIndex > 0) locationIndex -= 1;
+          else break;
+        }
+        previousCount = count;
+
+      } while (true);
       const marketLookupStats = await sendAPIRequest(
         page,
         'https://app.dealercenter.net/api-gateway/inventory/MarketData/GetMarketPriceStatistics?mathching=0',
@@ -803,6 +844,7 @@ export class DataCenterScraper {
           alreadyComputedPageNumber: false,
         },
       );
+      result['comp'] = marketSupplyData.items || [];
       // console.log(marketSupplyData);
     }
     return result;
