@@ -9,7 +9,8 @@
   "scripts": {
     "lint": "tslint ./src/**/*.ts",
     "fix": "tslint --fix ./src/**/*.ts",
-    "start": "ts-node src/index.ts"
+    "start": "dotenv -e .env -- ts-node src/index.ts",
+    "build": "tsc && tscpaths -p tsconfig.json -s ./src -o ./build"
   },
   "pre-commit": [
     "lint"
@@ -18,20 +19,22 @@
     "@types/express": "^5.0.0",
     "@types/node": "^10.14.13",
     "@types/puppeteer": "^1.12.4",
+    "dotenv-cli": "^8.0.0",
     "pre-commit": "^1.2.2",
     "prettier": "^1.18.2",
     "puppeteer": "^1.18.1",
     "ts-node": "^7.0.1",
     "tslint": "^5.18.0",
     "tslint-config-prettier": "^1.18.0",
-    "tslint-plugin-prettier": "^2.0.1",
-    "typescript": "^3.5.3"
+    "tslint-plugin-prettier": "^2.0.1"
   },
   "dependencies": {
     "cheerio": "^1.0.0",
     "express": "^4.21.2",
     "puppeteer-extra": "^3.3.6",
     "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "tscpaths": "^0.0.9",
+    "typescript": "^5.8.2",
     "zod": "^3.24.2"
   }
 }

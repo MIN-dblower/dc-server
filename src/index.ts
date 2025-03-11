@@ -31,6 +31,8 @@ async function scrapeDataCenter() {
 // scrapeJDPower();
 // scrapeDataCenter();
 init().then(() => {
-  app.listen(3000);
+  app.listen(3000, () => {
+    console.log('App successfully started.')
+  });
 })
 
