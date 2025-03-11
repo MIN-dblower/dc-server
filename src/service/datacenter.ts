@@ -4,6 +4,7 @@ import { delay } from '../lib/time';
 import * as cheerio from 'cheerio';
 import { IAnswer, IQuestion } from '../interfaces/dealercenter.types';
 import { UserAnswer } from '../interfaces/dealercenter.validation';
+import axios from 'axios';
 
 enum Status {
   NOT_AUTHORIZED = 'not_authorized',
@@ -77,20 +78,22 @@ export class DataCenterScraper {
         companyId: null,
       },
     );
+    console.log(duplicateData);
     if (duplicateData.inventoryId) {
       console.log('Already appraised vehicle');
-      const bookData = await sendAPIRequest(
-        page,
+      const { data: bookData } = await axios.post(
         'https://app.dealercenter.net/api-gateway/inventory/Inventory/LoadInventoryById',
-        'POST',
-        {
-          Authorization: `Bearer ${tokens.userAccessToken}`,
-        },
         {
           inventoryId: duplicateData.inventoryId,
           loadOption: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 17, 18, 16, 11],
           setIsCurrentForBook: false,
         },
+        {
+          headers: {
+            Authorization: `Bearer ${tokens.userAccessToken}`,
+          },
+        }
+
       );
       const kbbValue = bookData.vehicleBuilds.find(
         (el: any) => el.bookServiceTypeId === 1,
@@ -128,11 +131,8 @@ export class DataCenterScraper {
       const odometer = bookData.odometer ?? data.odometer;
 
 
-      const manheimValue = await sendAPIRequest(
-        page,
+      const { data: manheimValue } = await axios.post(
         'https://app.dealercenter.net/api-gateway/inventory/BookService/GetValuationValues',
-        'POST',
-        { Authorization: `Bearer ${tokens.userAccessToken}` },
         {
           method: 1,
           odometer,
@@ -155,6 +155,8 @@ export class DataCenterScraper {
             },
           ],
         },
+        { headers: { Authorization: `Bearer ${tokens.userAccessToken}` } },
+
       );
 
       console.log('Kelley:', {
@@ -196,11 +198,8 @@ export class DataCenterScraper {
       }
 
       console.log('NOW GETTING VEHICLE POOLS');
-      const buildMatchingData = await sendAPIRequest(
-        page,
+      const { data: buildMatchingData } = await axios.post(
         'https://app.dealercenter.net/api-gateway/inventory/MarketData/MarketDataBuildMatching',
-        'POST',
-        { Authorization: `Bearer ${tokens.userAccessToken}` },
         {
           marketingCompleteMatching: false,
           modelDefinition: {
@@ -238,8 +237,12 @@ export class DataCenterScraper {
             },
           },
         },
+        { headers: { Authorization: `Bearer ${tokens.userAccessToken}` } },
+
       );
-      console.log(buildMatchingData);
+      const locationPreset = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 5000];
+      let locationIndex = 23;
+
       const filters = {
         bodyStyles: [],
         driveTrains: [],
@@ -265,164 +268,105 @@ export class DataCenterScraper {
         years: [vehicleMeta.year],
         zip: '62298',
       };
-      const marketLookupData = await sendAPIRequest(
-        page,
-        'https://app.dealercenter.net/api-gateway/inventory/MarketData/GetFilterLookupData',
-        'POST',
-        { Authorization: `Bearer ${tokens.userAccessToken}` },
-        {
-          filters,
-          maxDigitalPriceLockType: null,
-          vehicleInfo: {
-            entityID: duplicateData.inventoryId,
-            entityTypeID: 3,
-            vin: vin,
-            stockNumber: vehicleMeta.stockNumber,
-            year: vehicleMeta.year,
-            make: vehicleMeta.make,
-            model: vehicleMeta.model,
-            trim: vehicleMeta.trim,
-            odometer: 30340,
-            body: vehicleMeta.body,
-            color: null,
-            engine: vehicleMeta.engine,
-            transmission: vehicleMeta.transmission,
-            driveTrain: vehicleMeta.driveTrain,
-            fuelType: vehicleMeta.fuelType,
-            modelId: vehicleMeta.modelId,
-            vehiclePrice: 0,
-            advertisingPrice: 0,
-            askingPrice: 0,
-            specialPrice: 0,
-            specialPriceStartDate: null,
-            specialPriceEndDate: null,
-            price: 0,
-            totalCost: 0,
-            certified: null,
-            equipment: vehicleMeta.equipmentCodes,
-            equipmentIds: vehicleMeta.equipmentIds,
+      const vehicleInfo = {
+        entityID: duplicateData.inventoryId,
+        entityTypeID: 3,
+        vin: vin,
+        stockNumber: vehicleMeta.stockNumber,
+        year: vehicleMeta.year,
+        make: vehicleMeta.make,
+        model: vehicleMeta.model,
+        trim: vehicleMeta.trim,
+        odometer: odometer,
+        body: vehicleMeta.body,
+        color: null,
+        engine: vehicleMeta.engine,
+        transmission: vehicleMeta.transmission,
+        driveTrain: vehicleMeta.driveTrain,
+        fuelType: vehicleMeta.fuelType,
+        modelId: vehicleMeta.modelId,
+        vehiclePrice: 0,
+        advertisingPrice: 0,
+        askingPrice: 0,
+        specialPrice: 0,
+        specialPriceStartDate: null,
+        specialPriceEndDate: null,
+        price: 0,
+        totalCost: 0,
+        certified: null,
+        equipment: vehicleMeta.equipmentCodes,
+        equipmentIds: vehicleMeta.equipmentIds,
+      };
+      let previousCount = -1;
+      do {
+        filters.radiusInMiles = locationPreset[locationIndex];
+        console.log('Milage: ', locationPreset[locationIndex])
+        const { data: marketLookupData } = await axios.post(
+
+          'https://app.dealercenter.net/api-gateway/inventory/MarketData/GetFilterLookupData',
+          {
+            filters,
+            maxDigitalPriceLockType: null,
+            vehicleInfo
           },
-        },
-      );
-      console.log(marketLookupData);
-      const marketLookupStats = await sendAPIRequest(
-        page,
+          { headers: { Authorization: `Bearer ${tokens.userAccessToken}` } },
+
+        );
+        const count = marketLookupData.listings.reduce((sum: number, item: any) => sum + item.count, 0);
+        console.log('Result: ', count)
+        if (previousCount === -1) previousCount = count;
+        if (count >= 10 && count < 20) {
+          // this is an ideal case.
+          break;
+        }
+        if (previousCount > 20 && count < 10) {
+          locationIndex += 1;
+          filters.radiusInMiles = locationPreset[locationIndex];
+          break;
+        }
+        if (previousCount < 9 && count > 20) {
+          locationIndex -= 1;
+          filters.radiusInMiles = locationPreset[locationIndex];
+          break;
+        }
+        if (previousCount < 10 && count < 10) {
+          if (locationIndex < locationPreset.length - 1) locationIndex += 1;
+          else break;
+        };
+        if (previousCount > 20 && count > 20) {
+          if (locationIndex > 0) locationIndex -= 1;
+          else break;
+        }
+        previousCount = count;
+      } while (true);
+      const { data: marketLookupStats } = await axios.post(
         'https://app.dealercenter.net/api-gateway/inventory/MarketData/GetMarketPriceStatistics?mathching=0',
-        'POST',
-        { Authorization: `Bearer ${tokens.userAccessToken}` },
         {
           filters,
           maxDigitalPriceLockType: null,
-          vehicleInfo: {
-            entityID: duplicateData.inventoryId,
-            entityTypeID: 3,
-            vin: vin,
-            stockNumber: vehicleMeta.stockNumber,
-            year: vehicleMeta.year,
-            make: vehicleMeta.make,
-            model: vehicleMeta.model,
-            trim: vehicleMeta.trim,
-            odometer: 30340,
-            body: vehicleMeta.body,
-            color: null,
-            engine: vehicleMeta.engine,
-            transmission: vehicleMeta.transmission,
-            driveTrain: vehicleMeta.driveTrain,
-            fuelType: vehicleMeta.fuelType,
-            modelId: vehicleMeta.modelId,
-            vehiclePrice: 0,
-            advertisingPrice: 0,
-            askingPrice: 0,
-            specialPrice: 0,
-            specialPriceStartDate: null,
-            specialPriceEndDate: null,
-            price: 0,
-            totalCost: 0,
-            certified: null,
-            equipment: vehicleMeta.equipmentCodes,
-            equipmentIds: vehicleMeta.equipmentIds,
-          },
+          vehicleInfo
         },
+        { headers: { Authorization: `Bearer ${tokens.userAccessToken}` } },
       );
       console.log(marketLookupStats);
 
-      const priceRankingData = await sendAPIRequest(
-        page,
+      const { data: priceRankingData } = await axios.post(
         `https://app.dealercenter.net/api-gateway/inventory/MarketData/GetPriceRankings?matching=${marketLookupStats.vehicleCount}`,
-        'POST',
-        { Authorization: `Bearer ${tokens.userAccessToken}` },
         {
           filters,
           maxDigitalPriceLockType: null,
-          vehicleInfo: {
-            entityID: duplicateData.inventoryId,
-            entityTypeID: 3,
-            vin: vin,
-            stockNumber: vehicleMeta.stockNumber,
-            year: vehicleMeta.year,
-            make: vehicleMeta.make,
-            model: vehicleMeta.model,
-            trim: vehicleMeta.trim,
-            odometer: 30340,
-            body: vehicleMeta.body,
-            color: null,
-            engine: vehicleMeta.engine,
-            transmission: vehicleMeta.transmission,
-            driveTrain: vehicleMeta.driveTrain,
-            fuelType: vehicleMeta.fuelType,
-            modelId: vehicleMeta.modelId,
-            vehiclePrice: 0,
-            advertisingPrice: 0,
-            askingPrice: 0,
-            specialPrice: 0,
-            specialPriceStartDate: null,
-            specialPriceEndDate: null,
-            price: 0,
-            totalCost: 0,
-            certified: null,
-            equipment: vehicleMeta.equipmentCodes,
-            equipmentIds: vehicleMeta.equipmentIds,
-          },
+          vehicleInfo
         },
+        { headers: { Authorization: `Bearer ${tokens.userAccessToken}` } },
+
       );
       console.log(priceRankingData);
-      const marketSupplyData = await sendAPIRequest(
-        page,
+      const { data: marketSupplyData } = await axios.post(
         `https://app.dealercenter.net/api-gateway/inventory/MarketData/GetMarketListDaysSupply`,
-        'POST',
-        { Authorization: `Bearer ${tokens.userAccessToken}` },
         {
           filters,
           maxDigitalPriceLockType: null,
-          currentVehicle: {
-            entityID: duplicateData.inventoryId,
-            entityTypeID: 3,
-            vin: vin,
-            stockNumber: vehicleMeta.stockNumber,
-            year: vehicleMeta.year,
-            make: vehicleMeta.make,
-            model: vehicleMeta.model,
-            trim: vehicleMeta.trim,
-            odometer: 30340,
-            body: vehicleMeta.body,
-            color: null,
-            engine: vehicleMeta.engine,
-            transmission: vehicleMeta.transmission,
-            driveTrain: vehicleMeta.driveTrain,
-            fuelType: vehicleMeta.fuelType,
-            modelId: vehicleMeta.modelId,
-            vehiclePrice: 0,
-            advertisingPrice: 0,
-            askingPrice: 0,
-            specialPrice: 0,
-            specialPriceStartDate: null,
-            specialPriceEndDate: null,
-            price: 0,
-            totalCost: 0,
-            certified: null,
-            equipment: vehicleMeta.equipmentCodes,
-            equipmentIds: vehicleMeta.equipmentIds,
-          },
+          currentVehicle: vehicleInfo,
           marketAnalyticsRequestSort: {
             field: 'advertisement.price',
             order: 'ASC',
@@ -433,7 +377,10 @@ export class DataCenterScraper {
           ranks: priceRankingData,
           alreadyComputedPageNumber: false,
         },
+        { headers: { Authorization: `Bearer ${tokens.userAccessToken}` } },
+
       );
+      result['comp'] = marketSupplyData.items || [];
       // console.log(marketSupplyData);
     } else {
       if (!data.odometer) {
@@ -481,13 +428,9 @@ export class DataCenterScraper {
       const kbbBuild = vehicleBuilds.find(
         (el: any) => el.bookServiceTypeId === 1,
       );
-      // console.log(kbbBuild);
 
-      const valueData = await sendAPIRequest(
-        page,
+      const { data: valueData } = await axios.post(
         'https://app.dealercenter.net/api-gateway/inventory/BookService/GetValuationValues',
-        'POST',
-        { Authorization: `Bearer ${tokens.userAccessToken}` },
         {
           method: 1,
           odometer: data.odometer,
@@ -513,6 +456,7 @@ export class DataCenterScraper {
             },
           ],
         },
+        { headers: { Authorization: `Bearer ${tokens.userAccessToken}` } },
       );
       console.log('Kelley:', {
         tradeInGood: valueData.kelley.tradeInGood,
@@ -522,11 +466,9 @@ export class DataCenterScraper {
       const nadaBuild = vehicleBuilds.find(
         (el: any) => el.bookServiceTypeId === 2,
       );
-      const nadaValue = await sendAPIRequest(
-        page,
+      const { data: nadaValue } = await axios.post(
+
         'https://app.dealercenter.net/api-gateway/inventory/BookService/GetValuationValues',
-        'POST',
-        { Authorization: `Bearer ${tokens.userAccessToken}` },
         {
           method: 1,
           odometer: data.odometer,
@@ -552,6 +494,7 @@ export class DataCenterScraper {
             },
           ],
         },
+        { headers: { Authorization: `Bearer ${tokens.userAccessToken}` } },
       );
       console.log('NADA(JD POWER):', {
         tradeAvgBook: nadaValue.nada?.tradeAvgBook,
@@ -560,11 +503,9 @@ export class DataCenterScraper {
       const blackBookBuild = vehicleBuilds.find(
         (el: any) => el.bookServiceTypeId === 3,
       );
-      const blackBookValue = await sendAPIRequest(
-        page,
+      const { data: blackBookValue } = await axios.post(
+
         'https://app.dealercenter.net/api-gateway/inventory/BookService/GetValuationValues',
-        'POST',
-        { Authorization: `Bearer ${tokens.userAccessToken}` },
         {
           method: 1,
           odometer: data.odometer,
@@ -590,6 +531,8 @@ export class DataCenterScraper {
             },
           ],
         },
+        { headers: { Authorization: `Bearer ${tokens.userAccessToken}` } },
+
       );
       console.log('Black Book Value: ', {
         retail: blackBookValue.blackBook?.totalRetailClean,
@@ -600,11 +543,8 @@ export class DataCenterScraper {
       const manheimBuild = vehicleBuilds.find(
         (el: any) => el.bookServiceTypeId === 4,
       );
-      const manheimValue = await sendAPIRequest(
-        page,
+      const { data: manheimValue } = await axios.post(
         'https://app.dealercenter.net/api-gateway/inventory/BookService/GetValuationValues',
-        'POST',
-        { Authorization: `Bearer ${tokens.userAccessToken}` },
         {
           method: 1,
           odometer: data.odometer,
@@ -627,6 +567,7 @@ export class DataCenterScraper {
             },
           ],
         },
+        { headers: { Authorization: `Bearer ${tokens.userAccessToken}` } },
       );
       console.log(
         'Manheim Value:',
@@ -652,11 +593,8 @@ export class DataCenterScraper {
 
       console.log('NOW GETTING VEHICLE POOLS');
       // console.log(vehicleMeta);
-      const buildMatchingData = await sendAPIRequest(
-        page,
+      const { data: buildMatchingData } = await axios.post(
         'https://app.dealercenter.net/api-gateway/inventory/MarketData/MarketDataBuildMatching',
-        'POST',
-        { Authorization: `Bearer ${tokens.userAccessToken}` },
         {
           marketingCompleteMatching: false,
           modelDefinition: {
@@ -694,9 +632,11 @@ export class DataCenterScraper {
             },
           },
         },
+        { headers: { Authorization: `Bearer ${tokens.userAccessToken}` } },
+
       );
       const locationPreset = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 5000];
-      let locationIndex = 4;
+      let locationIndex = 23;
       const filters = {
         bodyStyles: [],
         driveTrains: [],
@@ -760,16 +700,15 @@ export class DataCenterScraper {
       do {
         filters.radiusInMiles = locationPreset[locationIndex];
         console.log('Milage: ', locationPreset[locationIndex])
-        const marketLookupData = await sendAPIRequest(
-          page,
+        const { data: marketLookupData } = await axios.post(
           'https://app.dealercenter.net/api-gateway/inventory/MarketData/GetFilterLookupData',
-          'POST',
-          { Authorization: `Bearer ${tokens.userAccessToken}` },
           {
             filters,
             maxDigitalPriceLockType: null,
             vehicleInfo,
-          },
+          }, { headers: { Authorization: `Bearer ${tokens.userAccessToken}` }, }
+
+
         );
         const count = marketLookupData.listings.reduce((sum: number, item: any) => sum + item.count, 0);
         console.log('Result: ', count)
@@ -799,36 +738,33 @@ export class DataCenterScraper {
         previousCount = count;
 
       } while (true);
-      const marketLookupStats = await sendAPIRequest(
-        page,
+      const { data: marketLookupStats } = await axios.post(
         'https://app.dealercenter.net/api-gateway/inventory/MarketData/GetMarketPriceStatistics?mathching=0',
-        'POST',
-        { Authorization: `Bearer ${tokens.userAccessToken}` },
         {
           filters,
           maxDigitalPriceLockType: null,
           vehicleInfo,
         },
+        { headers: { Authorization: `Bearer ${tokens.userAccessToken}` } },
+
       );
       console.log(marketLookupStats);
 
-      const priceRankingData = await sendAPIRequest(
-        page,
+      const { data: priceRankingData } = await axios.post(
+
         `https://app.dealercenter.net/api-gateway/inventory/MarketData/GetPriceRankings?matching=${marketLookupStats.vehicleCount}`,
-        'POST',
-        { Authorization: `Bearer ${tokens.userAccessToken}` },
         {
           filters,
           maxDigitalPriceLockType: null,
           vehicleInfo,
         },
+        { headers: { Authorization: `Bearer ${tokens.userAccessToken}` } },
+
       );
       console.log(priceRankingData.length);
-      const marketSupplyData = await sendAPIRequest(
-        page,
+      const { data: marketSupplyData } = await axios.post(
+
         `https://app.dealercenter.net/api-gateway/inventory/MarketData/GetMarketListDaysSupply`,
-        'POST',
-        { Authorization: `Bearer ${tokens.userAccessToken}` },
         {
           filters,
           maxDigitalPriceLockType: null,
@@ -843,6 +779,8 @@ export class DataCenterScraper {
           ranks: priceRankingData,
           alreadyComputedPageNumber: false,
         },
+        { headers: { Authorization: `Bearer ${tokens.userAccessToken}` }, }
+
       );
       result['comp'] = marketSupplyData.items || [];
       // console.log(marketSupplyData);
@@ -856,11 +794,8 @@ export class DataCenterScraper {
     token: string,
     answers: Array<IAnswer>,
   ): Promise<{ question: any, vehicleBuilds: any }> {
-    const { question, vehicleBuilds } = await sendAPIRequest(
-      page,
+    const { data: { question, vehicleBuilds } } = await axios.post(
       'https://app.dealercenter.net/api-gateway/inventory/BookService/GetVehicleBuilds',
-      'POST',
-      { Authorization: `Bearer ${token}` },
       {
         method: 2,
         requestedBook: [1, 2, 3, 4],
@@ -876,6 +811,8 @@ export class DataCenterScraper {
           answers,
         },
       },
+      { headers: { Authorization: `Bearer ${token}` } },
+
     );
     const questionObj: IQuestion | undefined = (question && question.options.length > 0) ? {
       book: question.book,

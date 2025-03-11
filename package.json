@@ -29,6 +29,7 @@
     "tslint-plugin-prettier": "^2.0.1"
   },
   "dependencies": {
+    "axios": "^1.8.2",
     "cheerio": "^1.0.0",
     "express": "^4.21.2",
     "puppeteer-extra": "^3.3.6",
