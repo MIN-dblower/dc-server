@@ -1,0 +1,64 @@
+datasource db {
+  provider = "sqlite"
+  url      = "file:../public/store.db"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model EdgePipelineRecord {
+  id             String   @id @default(uuid())
+  auctionName    String
+  pictureCount   Int
+  runNumber      String
+  stockNumber    String
+  year           Int
+  make           String
+  model          String
+  style          String
+  color          String
+  odometer       Int
+  cr             String
+  grade          Float
+  saleDate       String
+  lane           String
+  vin            String   @unique
+  soldAmount     String
+  watchNotes     String
+  createdAt      DateTime @default(now())
+  lastUpdatedAt  DateTime @updatedAt
+
+  @@map("EdgePipelineRecord")
+}
+
+model AdesaAuctionRecord {
+  id                 String   @id @default(uuid())
+  laneRun            String
+  date               String
+  saleChannel        String
+  location           String
+  year               Int
+  make               String
+  model              String
+  trim               String
+  vin                String   @unique
+  engine             String
+  transmission       String
+  drivetrain         String
+  fuel               String
+  exteriorColor      String
+  odometer           Int
+  grade              Float
+  conditionGuarantee String
+  driveability       String
+  carValue           String
+  seller             String
+  notes              String
+  announcements      String
+  titleStatus        String
+  createdAt          DateTime @default(now())
+  lastUpdatedAt      DateTime @updatedAt
+
+  @@map("AdesaAuctionRecord")
+}
