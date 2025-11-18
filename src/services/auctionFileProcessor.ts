@@ -3,7 +3,7 @@ import { EdgePipelineRecord } from '../interfaces/edgePipeline.types';
 import { loadRecordMap, saveOrUpdateRecord } from '../storage/db';
 import * as fs from 'fs';
 import { readGoogleSheetAsCSV, downloadFile } from './googledrive';
-import { updateVehicleInDC } from './dcUpdateInterface';
+import { enqueueDCUpdateJob } from './jobQueue';
 
 /**
  * Processes Edge Pipeline auction files and handles VIN deduplication
@@ -15,9 +15,10 @@ export interface ProcessedFileResult {
   updatedRecords: EdgePipelineRecord[];
   skippedRecords: EdgePipelineRecord[];
   totalRecords: number;
-  dcUpdateResults: {
-    successful: number;
-    failed: number;
+  dcQueueStats: {
+    queued: number;
+    duplicates: number;
+    errors: number;
   };
 }
 
@@ -161,31 +162,35 @@ export async function processAuctionFile(
     - Updated records (other fields changed): ${recordsNeedingDBOnly.length}
     - Skipped records: ${skippedRecords.length}`);
 
-  // Update DC only for records where odometer or watchNotes changed
-  let dcSuccessful = 0;
-  let dcFailed = 0;
+  // Enqueue DC jobs only for records where odometer or watchNotes changed
+  let dcJobsQueued = 0;
+  let dcJobsDuplicate = 0;
+  let dcJobsErrored = 0;
 
   // Process records that need DC update (new records or odometer/watchNotes changed)
   for (const record of recordsNeedingDCUpdate) {
-    const isNew = newRecords.includes(record);
+    const isNew = !existingRecords[record.vin];
 
     try {
-      // Update DC first
-      const dcResult = await updateVehicleInDC(record, isNew);
+      const { wasDuplicate } = await enqueueDCUpdateJob({
+        record,
+        isNewRecord: isNew,
+        auctionType: 'Edge Pipeline',
+        fileId,
+        fileName,
+      });
 
-      if (dcResult.success) {
-        dcSuccessful++;
-        // Save to database after successful DC update
-        await saveOrUpdateRecord(record);
+      if (wasDuplicate) {
+        dcJobsDuplicate++;
       } else {
-        dcFailed++;
-        console.error(
-          `Skipping database save for VIN ${record.vin} due to DC update failure`
-        );
+        dcJobsQueued++;
       }
     } catch (error) {
-      dcFailed++;
-      console.error(`Error processing record for VIN ${record.vin}:`, error);
+      dcJobsErrored++;
+      console.error(
+        `Error enqueueing DC job for VIN ${record.vin}:`,
+        error,
+      );
     }
   }
 
@@ -203,9 +208,10 @@ export async function processAuctionFile(
     updatedRecords,
     skippedRecords,
     totalRecords: records.length,
-    dcUpdateResults: {
-      successful: dcSuccessful,
-      failed: dcFailed,
+    dcQueueStats: {
+      queued: dcJobsQueued,
+      duplicates: dcJobsDuplicate,
+      errors: dcJobsErrored,
     },
   };
 }
@@ -239,31 +245,35 @@ export async function processLocalAuctionFile(filePath: string): Promise<Process
     - Updated records (other fields changed): ${recordsNeedingDBOnly.length}
     - Skipped records: ${skippedRecords.length}`);
 
-  // Update DC only for records where odometer or watchNotes changed
-  let dcSuccessful = 0;
-  let dcFailed = 0;
+  // Enqueue DC jobs only for records where odometer or watchNotes changed
+  let dcJobsQueued = 0;
+  let dcJobsDuplicate = 0;
+  let dcJobsErrored = 0;
 
   // Process records that need DC update (new records or odometer/watchNotes changed)
   for (const record of recordsNeedingDCUpdate) {
-    const isNew = newRecords.includes(record);
+    const isNew = !existingRecords[record.vin];
 
     try {
-      // Update DC first
-      const dcResult = await updateVehicleInDC(record, isNew);
+      const { wasDuplicate } = await enqueueDCUpdateJob({
+        record,
+        isNewRecord: isNew,
+        auctionType: 'Edge Pipeline',
+        fileId: 'local-file',
+        fileName: filePath,
+      });
 
-      if (dcResult.success) {
-        dcSuccessful++;
-        // Save to database after successful DC update
-        await saveOrUpdateRecord(record);
+      if (wasDuplicate) {
+        dcJobsDuplicate++;
       } else {
-        dcFailed++;
-        console.error(
-          `Skipping database save for VIN ${record.vin} due to DC update failure`
-        );
+        dcJobsQueued++;
       }
     } catch (error) {
-      dcFailed++;
-      console.error(`Error processing record for VIN ${record.vin}:`, error);
+      dcJobsErrored++;
+      console.error(
+        `Error enqueueing DC job for VIN ${record.vin}:`,
+        error,
+      );
     }
   }
 
@@ -281,9 +291,10 @@ export async function processLocalAuctionFile(filePath: string): Promise<Process
     updatedRecords,
     skippedRecords,
     totalRecords: records.length,
-    dcUpdateResults: {
-      successful: dcSuccessful,
-      failed: dcFailed,
+    dcQueueStats: {
+      queued: dcJobsQueued,
+      duplicates: dcJobsDuplicate,
+      errors: dcJobsErrored,
     },
   };
 }

@@ -120,7 +120,7 @@ export class AuctionMonitor {
           `✅ Successfully processed ${window.fileName}: ${result.newRecords.length} new, ${result.updatedRecords.length} updated`,
         );
         console.log(
-          `   DC Updates: ${result.dcUpdateResults.successful} successful, ${result.dcUpdateResults.failed} failed`,
+          `   DC Queue: ${result.dcQueueStats.queued} enqueued, ${result.dcQueueStats.duplicates} duplicates, ${result.dcQueueStats.errors} errors`,
         );
       } else {
         // Edge Pipeline uses the regular processor
@@ -134,7 +134,7 @@ export class AuctionMonitor {
           `✅ Successfully processed ${window.fileName}: ${result.newRecords.length} new, ${result.updatedRecords.length} updated`,
         );
         console.log(
-          `   DC Updates: ${result.dcUpdateResults.successful} successful, ${result.dcUpdateResults.failed} failed`,
+          `   DC Queue: ${result.dcQueueStats.queued} enqueued, ${result.dcQueueStats.duplicates} duplicates, ${result.dcQueueStats.errors} errors`,
         );
       }
     } catch (error) {

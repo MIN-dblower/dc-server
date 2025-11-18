@@ -9,7 +9,7 @@ export interface IAnswer {
 }
 
 export interface IQuestion {
-  category: string;
+  key: string;
   type: 'checkbox' | 'select' | 'input';
   items: Array<{
     id: string;

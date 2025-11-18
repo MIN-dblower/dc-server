@@ -2,7 +2,7 @@ import { parseAdesaCSV } from '../utils/adesaCsvParser';
 import { AdesaRecord } from '../interfaces/adesa.types';
 import { loadAdesaRecordMap, saveOrUpdateAdesaRecord } from '../storage/adesaDb';
 import { readGoogleSheetAsCSV, downloadFile } from './googledrive';
-import { updateVehicleInDC } from './dcUpdateInterface';
+import { enqueueDCUpdateJob } from './jobQueue';
 
 /**
  * Processes Adesa auction files and handles VIN deduplication
@@ -14,9 +14,10 @@ export interface ProcessedAdesaFileResult {
   updatedRecords: AdesaRecord[];
   skippedRecords: AdesaRecord[];
   totalRecords: number;
-  dcUpdateResults: {
-    successful: number;
-    failed: number;
+  dcQueueStats: {
+    queued: number;
+    duplicates: number;
+    errors: number;
   };
 }
 
@@ -154,31 +155,35 @@ export async function processAdesaFile(
     - Updated records (other fields changed): ${recordsNeedingDBOnly.length}
     - Skipped records: ${skippedRecords.length}`);
 
-  // Update DC only for records where odometer or notes changed
-  let dcSuccessful = 0;
-  let dcFailed = 0;
+  // Enqueue DC jobs for records where odometer or notes changed
+  let dcJobsQueued = 0;
+  let dcJobsDuplicate = 0;
+  let dcJobsErrored = 0;
 
   // Process records that need DC update (new records or odometer/notes changed)
   for (const record of recordsNeedingDCUpdate) {
-    const isNew = newRecords.includes(record);
+    const isNew = !existingRecords[record.vin];
 
     try {
-      // Update DC first
-      const dcResult = await updateVehicleInDC(record, isNew);
+      const { wasDuplicate } = await enqueueDCUpdateJob({
+        record,
+        isNewRecord: isNew,
+        auctionType: 'Adesa',
+        fileId,
+        fileName,
+      });
 
-      if (dcResult.success) {
-        dcSuccessful++;
-        // Save to database after successful DC update
-        await saveOrUpdateAdesaRecord(record);
+      if (wasDuplicate) {
+        dcJobsDuplicate++;
       } else {
-        dcFailed++;
-        console.error(
-          `Skipping database save for VIN ${record.vin} due to DC update failure`
-        );
+        dcJobsQueued++;
       }
     } catch (error) {
-      dcFailed++;
-      console.error(`Error processing record for VIN ${record.vin}:`, error);
+      dcJobsErrored++;
+      console.error(
+        `Error enqueueing DC job for VIN ${record.vin}:`,
+        error,
+      );
     }
   }
 
@@ -196,9 +201,10 @@ export async function processAdesaFile(
     updatedRecords,
     skippedRecords,
     totalRecords: records.length,
-    dcUpdateResults: {
-      successful: dcSuccessful,
-      failed: dcFailed,
+    dcQueueStats: {
+      queued: dcJobsQueued,
+      duplicates: dcJobsDuplicate,
+      errors: dcJobsErrored,
     },
   };
 }
@@ -238,31 +244,35 @@ export async function processLocalAdesaFile(
     - Updated records (other fields changed): ${recordsNeedingDBOnly.length}
     - Skipped records: ${skippedRecords.length}`);
 
-  // Update DC only for records where odometer or notes changed
-  let dcSuccessful = 0;
-  let dcFailed = 0;
+  // Enqueue DC jobs for records where odometer or notes changed
+  let dcJobsQueued = 0;
+  let dcJobsDuplicate = 0;
+  let dcJobsErrored = 0;
 
   // Process records that need DC update (new records or odometer/notes changed)
   for (const record of recordsNeedingDCUpdate) {
-    const isNew = newRecords.includes(record);
+    const isNew = !existingRecords[record.vin];
 
     try {
-      // Update DC first
-      const dcResult = await updateVehicleInDC(record, isNew);
+      const { wasDuplicate } = await enqueueDCUpdateJob({
+        record,
+        isNewRecord: isNew,
+        auctionType: 'Adesa',
+        fileId: 'local-file',
+        fileName: filePath,
+      });
 
-      if (dcResult.success) {
-        dcSuccessful++;
-        // Save to database after successful DC update
-        await saveOrUpdateAdesaRecord(record);
+      if (wasDuplicate) {
+        dcJobsDuplicate++;
       } else {
-        dcFailed++;
-        console.error(
-          `Skipping database save for VIN ${record.vin} due to DC update failure`
-        );
+        dcJobsQueued++;
       }
     } catch (error) {
-      dcFailed++;
-      console.error(`Error processing record for VIN ${record.vin}:`, error);
+      dcJobsErrored++;
+      console.error(
+        `Error enqueueing DC job for VIN ${record.vin}:`,
+        error,
+      );
     }
   }
 
@@ -280,9 +290,10 @@ export async function processLocalAdesaFile(
     updatedRecords,
     skippedRecords,
     totalRecords: records.length,
-    dcUpdateResults: {
-      successful: dcSuccessful,
-      failed: dcFailed,
+    dcQueueStats: {
+      queued: dcJobsQueued,
+      duplicates: dcJobsDuplicate,
+      errors: dcJobsErrored,
     },
   };
 }

@@ -25,6 +25,9 @@ import {
 import { AdesaRecord } from '../interfaces/adesa.types';
 import { EdgePipelineRecord } from '../interfaces/edgePipeline.types';
 import { Page } from 'puppeteer';
+import { isVinBlocked, getBlockedVinDetails, blockVin } from './blockedVins';
+import { enqueueTelegramMessage } from './telegramQueue';
+import { UncoveredCaseError } from '../errors/uncoveredCaseError';
 
 /**
  * Determines if a record is an Adesa record
@@ -53,6 +56,7 @@ function recordToVehicle(record: AuctionRecordUnion): IVehicle {
     model: record.model,
     year: record.year,
     odometer: record.odometer,
+    trim: isAdesaRecord(record) ? (record.trim || '') : '',
   };
 }
 
@@ -448,6 +452,29 @@ export async function updateDCForAuctionRecord(
   const recordType = isAdesa ? 'Adesa' : 'Edge Pipeline';
   const note = getNotes(record);
 
+  // Check if VIN is blocked before processing
+  const blocked = await isVinBlocked(record.vin);
+  if (blocked) {
+    const details = await getBlockedVinDetails(record.vin);
+    console.warn(
+      `\n🚫 VIN ${record.vin} is blocked from processing. Reason: ${details?.reason || 'Unknown'}`,
+    );
+    
+    // Queue Telegram alert about blocked VIN attempt
+    if (details) {
+      await enqueueTelegramMessage({
+        type: 'blocked_vin_attempt',
+        vin: record.vin,
+        details,
+      });
+    }
+
+    return {
+      success: false,
+      error: `VIN is blocked: ${details?.reason || 'Unknown reason'}. Please unblock the VIN after fixing the issue.`,
+    };
+  }
+
   console.log(
     `\n🔄 DC Update for ${recordType} record - VIN: ${record.vin}, isNew: ${isNewRecord}`,
   );
@@ -507,10 +534,39 @@ export async function updateDCForAuctionRecord(
     }
   } catch (error) {
     console.error(`❌ Error in DC update for VIN: ${record.vin}`, error);
+    
+    // If it's an UncoveredCaseError, block the VIN and queue Telegram alert
+    if (error instanceof UncoveredCaseError) {
+      // Block the VIN
+      await blockVin(
+        record.vin,
+        'Uncovered case in completeVehicleBuild',
+        error.question,
+        error.message,
+      );
+
+      // Queue Telegram alert
+      await enqueueTelegramMessage({
+        type: 'uncovered_case',
+        vin: error.vin,
+        question: error.question,
+        vehicleTrim: error.vehicleTrim,
+      });
+
+      return {
+        success: false,
+        error: `Uncovered case detected: ${error.message}. VIN has been blocked.`,
+      };
+    }
+    
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
     };
+  } finally {
+    if (dcEngine) {
+      await dcEngine.close();
+    }
   }
 }
 

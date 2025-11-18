@@ -20,6 +20,8 @@ export interface DCUpdateResult {
  */
 export type AuctionRecordUnion = AdesaRecord | EdgePipelineRecord;
 
+export { updateDCForAuctionRecord } from './dcUpdateExample';
+
 /**
  * Updates a vehicle entry in Data Center
  * This is the main function to call before saving to database

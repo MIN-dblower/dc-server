@@ -7,6 +7,8 @@ import { filterItems } from '../lib/array';
 import { fetchOtpWithBackoff } from './otp.service';
 import { IVehicle } from 'interfaces/vehicle.types';
 import { generateId } from '../utils/auction';
+import { findBestMatch } from '../utils/stringSimilarity';
+import { UncoveredCaseError } from '../errors/uncoveredCaseError';
 
 let loginPromise: Promise<void> | null = null;
 let accessToken: string | null;
@@ -1172,7 +1174,10 @@ export class DCEngine {
     // }, { headers: { Authorization: `Bearer ${accessToken}` }, })
     // console.log(saveMarketPricingDetail);
   }
-  async registerInventory(page: Page, vehicle: IVehicle) {
+  async registerInventory(
+    page: Page,
+    vehicle: IVehicle,
+  ): Promise<{ isCompleted: boolean; error: string | null }> {
     const { vin, odometer } = vehicle;
     const {
       vehicleBuilds,
@@ -1571,7 +1576,6 @@ export class DCEngine {
       },
       { headers: { Authorization: `Bearer ${accessToken}` } },
     );
-    console.log(marketLookupStats);
 
     const { data: priceRankingData } = await axios.post(
       `https://app.dealercenter.net/api-gateway/inventory/MarketData/GetPriceRankings?matching=${marketLookupStats.vehicleCount}`,
@@ -1591,7 +1595,6 @@ export class DCEngine {
       },
       { headers: { Authorization: `Bearer ${accessToken}` } },
     );
-    console.log(priceRankingData.length, marketStatisticsData);
     const { data: marketSupplyData } = await axios.post(
       `https://app.dealercenter.net/api-gateway/inventory/MarketData/GetMarketListDaysSupply`,
       {
@@ -1653,8 +1656,6 @@ export class DCEngine {
       { headers: { Authorization: `Bearer ${accessToken}` } },
     );
 
-    console.log(savedResult);
-
     const entityID = savedResult.id;
     vehicleInfo.entityID = entityID;
     const { data: savePricingFilter } = await axios.post(
@@ -1672,30 +1673,7 @@ export class DCEngine {
       { headers: { Authorization: `Bearer ${accessToken}` } },
     );
 
-    console.log(savePricingFilter);
-    return entityID;
-    // const marketPricingID = savePricingFilter.id;
-
-    // const { data: saveMarketPricingDetail } = await axios.post('https://app.dealercenter.net/api-gateway/inventory/MarketData/SaveMarketPricingDetail', {
-    //   appraisedBy: "08ff48cb-f0c7-4bff-8b66-8d069128d879",
-    //   appraisedByName: "Appraisal Manager - appraisalmanager",
-    //   avgOdometer: marketSupplyData.odometerAvg,
-    //   avgPrice: marketSupplyData.priceAvg,
-    //   entityID,
-    //   entityTypeID: 3,
-    //   marketDataProviderID: 1,
-    //   marketDaySupply: marketSupplyData.matching,
-    //   marketPrice: marketSupplyData.priceAvg * 0.98,
-    //   marketPricingID,
-    //   marketPricingRequestID: marketSupplyData.marketPricingRequestID,
-    //   matchedVehicleCount: marketSupplyData.vehicleCount,
-    //   maxPrice: marketSupplyData.priceMax,
-    //   maxRank: marketSupplyData.vehicleCount,
-    //   minPrice: marketSupplyData.priceMin,
-    //   overallVehicleCount: overallCount,
-    //   rank: 4,
-    //   reconEstimate: 0,
-    //   totalGrossProfit: 0
+    return { isCompleted: true, error: null };
     // }, { headers: { Authorization: `Bearer ${accessToken}` }, })
     // console.log(saveMarketPricingDetail);
   }
@@ -1814,7 +1792,7 @@ export class DCEngine {
     return { filters, marketLookupData };
   }
   async completeVehicleBuild(page: Page, vehicle: IVehicle) {
-    const answer: IAnswer[] = [];
+    const answers: IAnswer[] = [];
 
     do {
       const {
@@ -1824,7 +1802,7 @@ export class DCEngine {
         vehicleWeight,
         highwayMpg,
         grossVehicleWeight,
-      } = await this.getBuild(page, vehicle.vin, accessToken!, answer);
+      } = await this.getBuild(page, vehicle.vin, accessToken!, answers);
       if (!question) {
         return {
           vehicleBuilds,
@@ -1834,9 +1812,44 @@ export class DCEngine {
           grossVehicleWeight,
         };
       }
-      if (question.type === 'checkbox') {
+      const exist = answers.find(answer => answer.book === question.book);
+
+      if (question.key === 'trim' && question.type === 'select') {
+        /**
+         * {
+  book: 4,
+  key: 'trim',
+  items: [
+    { id: '201600600170027', name: '4D SEDAN 320I XDRIVE SPORT' },
+    { id: '201600600175237', name: '4D SEDAN 320I XDRIVE' }
+  ],
+  type: 'select'
+}
+  vehicle trim: 320i xDrive
+  let's compare the similarity between the vehicle trim and the items in the select list
+
+         */
+
+        // Get vehicle trim from vehicleBuilds if available, otherwise from vehicle object
+
+        // If we have a trim and this is a trim question, find the best matching item
+
+        const bestMatch = findBestMatch(vehicle.trim, question.items);
+
+        console.log(
+          `Selecting best matching trim: "${bestMatch.name}" for vehicle trim "${vehicle.trim}"`,
+        );
+        if (!exist)
+          answers.push({
+            book: question.book,
+            addDeduct: [],
+            modelId: bestMatch.id,
+            isBlank: null,
+          });
+        else exist.modelId = bestMatch.id;
+      } else if (question.type === 'checkbox') {
         // select all options
-        answer.push({
+        answers.push({
           book: question.book,
           addDeduct: question.items.map((el: any) => ({
             action: 1,
@@ -1845,8 +1858,14 @@ export class DCEngine {
           isBlank: null,
         });
         continue;
+      } else {
+        // Uncovered case - just throw error, handling will be done outside this module
+        const error = new UncoveredCaseError(vehicle.vin, question, vehicle.trim);
+        console.error(`\n🚨 Uncovered case detected for VIN ${vehicle.vin}:`);
+        console.error('Question:', JSON.stringify(question, null, 2));
+        console.error('Vehicle Trim:', vehicle.trim);
+        throw error;
       }
-      throw new Error('Not implemented');
     } while (true);
   }
   async getBuild(
@@ -1884,14 +1903,12 @@ export class DCEngine {
       },
     );
     const {
-      data: {
-        question,
-        highwayMpg,
-        cityMpg,
-        vehicleWeight,
-        vehicleBuilds,
-        grossVehicleWeight,
-      },
+      question,
+      highwayMpg,
+      cityMpg,
+      vehicleWeight,
+      vehicleBuilds,
+      grossVehicleWeight,
     } = resp;
     // if (!vehicleBuilds) throw new Error('Invalid VIN');
     const questionObj: IQuestion | undefined =
@@ -2212,5 +2229,8 @@ export class DCEngine {
     );
     // console.log(saveMarketPricingDetail);
     return data;
+  }
+  async close(): Promise<void> {
+    return this.window.disconnect();
   }
 }
