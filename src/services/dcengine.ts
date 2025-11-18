@@ -9,6 +9,7 @@ import { IVehicle } from 'interfaces/vehicle.types';
 import { generateId } from '../utils/auction';
 import { findBestMatch } from '../utils/stringSimilarity';
 import { UncoveredCaseError } from '../errors/uncoveredCaseError';
+import { NoCompFoundError } from '../errors/noCompFoundError';
 
 let loginPromise: Promise<void> | null = null;
 let accessToken: string | null;
@@ -374,7 +375,6 @@ export class DCEngine {
         5000,
       ];
       let locationIndex = 23;
-      console.log(odometer);
 
       const filters = {
         bodyStyles: [],
@@ -1189,11 +1189,12 @@ export class DCEngine {
     if (vehicleBuilds.length === 0)
       return { isCompleted: false, error: 'Not Valid Vin' };
 
-    const { data: draftData } = await axios.get(
+    const draftData = await sendAPIRequest(
+      page,
       'https://app.dealercenter.net/api-gateway/inventory/Inventory/NewInventory?source=1',
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      },
+      'GET',
+      { Authorization: `Bearer ${accessToken}` },
+      'https://app.dealercenter.net/api-gateway/inventory/Inventory/NewInventory?source=1',
     );
 
     const vehicleMeta = {
@@ -1219,8 +1220,11 @@ export class DCEngine {
       (el: any) => el.bookServiceTypeId === 1,
     );
 
-    const { data: valueData } = await axios.post(
+    const valueData = await sendAPIRequest(
+      page,
       'https://app.dealercenter.net/api-gateway/inventory/BookService/GetValuationValues',
+      'POST',
+      { Authorization: `Bearer ${accessToken}` },
       {
         method: 1,
         odometer: odometer,
@@ -1246,19 +1250,18 @@ export class DCEngine {
           },
         ],
       },
-      { headers: { Authorization: `Bearer ${accessToken}` } },
     );
-    console.log('Kelley:', {
-      tradeInGood: valueData.kelley.tradeInGood,
-      retailBook: valueData.kelley.retailBook,
-    });
+
     const kelleyBuild = valueData.kelleyBuild;
 
     const nadaBuildData = vehicleBuilds.find(
       (el: any) => el.bookServiceTypeId === 2,
     );
-    const { data: nadaValue } = await axios.post(
+    const nadaValue = await sendAPIRequest(
+      page,
       'https://app.dealercenter.net/api-gateway/inventory/BookService/GetValuationValues',
+      'POST',
+      { Authorization: `Bearer ${accessToken}` },
       {
         method: 1,
         odometer,
@@ -1284,14 +1287,16 @@ export class DCEngine {
           },
         ],
       },
-      { headers: { Authorization: `Bearer ${accessToken}` } },
     );
     const nadaBuild = nadaValue.nadaBuild;
     const blackBookBuildData = vehicleBuilds.find(
       (el: any) => el.bookServiceTypeId === 3,
     );
-    const { data: blackBookValue } = await axios.post(
+    const blackBookValue = await sendAPIRequest(
+      page,
       'https://app.dealercenter.net/api-gateway/inventory/BookService/GetValuationValues',
+      'POST',
+      { Authorization: `Bearer ${accessToken}` },
       {
         method: 1,
         odometer,
@@ -1317,15 +1322,17 @@ export class DCEngine {
           },
         ],
       },
-      { headers: { Authorization: `Bearer ${accessToken}` } },
     );
 
     const blackBookBuild = blackBookValue.blackBookBuild;
     const manheimBuildData = vehicleBuilds.find(
       (el: any) => el.bookServiceTypeId === 4,
     );
-    const { data: manheimValue } = await axios.post(
+    const manheimValue = await sendAPIRequest(
+      page,
       'https://app.dealercenter.net/api-gateway/inventory/BookService/GetValuationValues',
+      'POST',
+      { Authorization: `Bearer ${accessToken}` },
       {
         method: 1,
         odometer,
@@ -1348,15 +1355,17 @@ export class DCEngine {
           },
         ],
       },
-      { headers: { Authorization: `Bearer ${accessToken}` } },
     );
 
     const manheimBuild = manheimValue.manheimBuild;
 
     console.log('NOW GETTING VEHICLE POOLS');
     // console.log(vehicleMeta);
-    const { data: buildMatchingData } = await axios.post(
+    const buildMatchingData = await sendAPIRequest(
+      page,
       'https://app.dealercenter.net/api-gateway/inventory/MarketData/MarketDataBuildMatching',
+      'POST',
+      { Authorization: `Bearer ${accessToken}` },
       {
         marketCompleteMatching: true,
         modelDefinition: {
@@ -1394,9 +1403,8 @@ export class DCEngine {
           },
         },
       },
-      { headers: { Authorization: `Bearer ${accessToken}` } },
     );
-    console.log(buildMatchingData);
+
     const locationPreset = [
       5,
       10,
@@ -1500,15 +1508,12 @@ export class DCEngine {
     let isSet = false;
     do {
       filters.radiusInMiles = locationPreset[locationIndex];
-      console.log('Milage: ', locationPreset[locationIndex], filters);
-      const { data: marketLookupData } = await axios.post(
+      const marketLookupData = await sendAPIRequest(
+        page,
         'https://app.dealercenter.net/api-gateway/inventory/MarketData/GetFilterLookupData',
-        {
-          filters,
-          maxDigitalPriceLockType: null,
-          vehicleInfo,
-        },
-        { headers: { Authorization: `Bearer ${accessToken}` } },
+        'POST',
+        { Authorization: `Bearer ${accessToken}` },
+        { filters, maxDigitalPriceLockType: null, vehicleInfo },
       );
       const count = marketLookupData.listings.reduce(
         (sum: number, item: any) => sum + item.count,
@@ -1526,7 +1531,7 @@ export class DCEngine {
         isSet = false;
         continue;
       }
-      console.log('Result: ', count, previousCount, isSet);
+      console.log('Similar Vehicles found: ', count);
       if (previousCount === -1) previousCount = count;
       if (count >= 10 && count < 20) {
         // this is an ideal case.
@@ -1567,36 +1572,46 @@ export class DCEngine {
       previousCount = count;
       isSet = true;
     } while (true);
-    const { data: marketLookupStats } = await axios.post(
+    const marketLookupStats = await sendAPIRequest(
+      page,
       'https://app.dealercenter.net/api-gateway/inventory/MarketData/GetMarketPriceStatistics?mathching=0',
-      {
-        filters,
-        maxDigitalPriceLockType: null,
-        vehicleInfo,
-      },
-      { headers: { Authorization: `Bearer ${accessToken}` } },
+      'POST',
+      { Authorization: `Bearer ${accessToken}` },
+      { filters, maxDigitalPriceLockType: null, vehicleInfo },
     );
+    console.log(marketLookupStats.vehicleCount);
 
-    const { data: priceRankingData } = await axios.post(
+    // Check if no similar vehicles found
+    if (
+      marketLookupStats.vehicleCount === 0 ||
+      marketLookupStats.vehicleCount < 1
+    ) {
+      throw new NoCompFoundError(vin, marketLookupStats.vehicleCount);
+    }
+
+    const priceRankingData = await sendAPIRequest(
+      page,
       `https://app.dealercenter.net/api-gateway/inventory/MarketData/GetPriceRankings?matching=${marketLookupStats.vehicleCount}`,
+      'POST',
+      { Authorization: `Bearer ${accessToken}` },
       {
         filters,
         maxDigitalPriceLockType: null,
         vehicleInfo,
       },
-      { headers: { Authorization: `Bearer ${accessToken}` } },
     );
-    const { data: marketStatisticsData } = await axios.post(
+    const marketStatisticsData = await sendAPIRequest(
+      page,
       `https://app.dealercenter.net/api-gateway/inventory/MarketData/GetMarketPriceStatistics?mathching=${marketLookupStats.vehicleCount}`,
-      {
-        filters,
-        maxDigitalPriceLockType: null,
-        vehicleInfo,
-      },
-      { headers: { Authorization: `Bearer ${accessToken}` } },
+      'POST',
+      { Authorization: `Bearer ${accessToken}` },
+      { filters, maxDigitalPriceLockType: null, vehicleInfo },
     );
-    const { data: marketSupplyData } = await axios.post(
+    const marketSupplyData = await sendAPIRequest(
+      page,
       `https://app.dealercenter.net/api-gateway/inventory/MarketData/GetMarketListDaysSupply`,
+      'POST',
+      { Authorization: `Bearer ${accessToken}` },
       {
         filters,
         maxDigitalPriceLockType: null,
@@ -1611,7 +1626,6 @@ export class DCEngine {
         ranks: priceRankingData,
         alreadyComputedPageNumber: false,
       },
-      { headers: { Authorization: `Bearer ${accessToken}` } },
     );
 
     // SAVE APPRAISAL
@@ -1638,28 +1652,29 @@ export class DCEngine {
     draftData['grossVehicleWeight'] = grossVehicleWeight;
     draftData['vin'] = vin;
 
-    const { data: savedResult } = await axios.post(
+    const savedResult = await sendAPIRequest(
+      page,
       'https://app.dealercenter.net/api-gateway/inventory/Inventory/SaveInventory',
-      {
-        changeSource: 'web',
-        saveOption: null,
-        inventory: draftData,
-      },
-      { headers: { Authorization: `Bearer ${accessToken}` } },
+      'POST',
+      { Authorization: `Bearer ${accessToken}` },
+      { changeSource: 'web', saveOption: null, inventory: draftData },
     );
 
-    const { data: getDescriptionInventory } = await axios.post(
+    const getDescriptionInventory = await sendAPIRequest(
+      page,
       'https://app.dealercenter.net/api-gateway/inventory/OnlineMarketingDescription/GetDescriptionInventory',
-      {
-        ...draftData,
-      },
-      { headers: { Authorization: `Bearer ${accessToken}` } },
+      'POST',
+      { Authorization: `Bearer ${accessToken}` },
+      { ...draftData },
     );
 
     const entityID = savedResult.id;
     vehicleInfo.entityID = entityID;
-    const { data: savePricingFilter } = await axios.post(
+    const savePricingFilter = await sendAPIRequest(
+      page,
       'https://app.dealercenter.net/api-gateway/inventory/MarketData/SaveMarketPriceFilter',
+      'POST',
+      { Authorization: `Bearer ${accessToken}` },
       {
         entityID,
         entityTypeID: 3,
@@ -1670,11 +1685,9 @@ export class DCEngine {
           vehicleInfo,
         },
       },
-      { headers: { Authorization: `Bearer ${accessToken}` } },
     );
 
     return { isCompleted: true, error: null };
-    // }, { headers: { Authorization: `Bearer ${accessToken}` }, })
     // console.log(saveMarketPricingDetail);
   }
   async adjustFilters(page: Page, filters: any, vehicleInfo: any) {
@@ -1720,7 +1733,6 @@ export class DCEngine {
     let marketLookupData: any = null;
     do {
       filters.radiusInMiles = locationPreset[locationIndex];
-      console.log('Milage: ', locationPreset[locationIndex], filters);
       marketLookupData = await sendAPIRequest(
         page,
         'https://app.dealercenter.net/api-gateway/inventory/MarketData/GetFilterLookupData',
@@ -1744,11 +1756,10 @@ export class DCEngine {
         filters.transmissions = marketLookupData.transmissions.map(
           (el: any) => el.name,
         );
-        console.log('reset');
         isSet = false;
         continue;
       }
-      console.log('Result: ', count, previousCount, isSet);
+      console.log('Similar Vehicles Found: ', count);
       if (previousCount === -1) previousCount = count;
       if (count >= 10 && count < 20) {
         // this is an ideal case.
@@ -1860,7 +1871,11 @@ export class DCEngine {
         continue;
       } else {
         // Uncovered case - just throw error, handling will be done outside this module
-        const error = new UncoveredCaseError(vehicle.vin, question, vehicle.trim);
+        const error = new UncoveredCaseError(
+          vehicle.vin,
+          question,
+          vehicle.trim,
+        );
         console.error(`\n🚨 Uncovered case detected for VIN ${vehicle.vin}:`);
         console.error('Question:', JSON.stringify(question, null, 2));
         console.error('Vehicle Trim:', vehicle.trim);
@@ -1992,7 +2007,12 @@ export class DCEngine {
     } = data;
     return { filters, vehicleInfo, id, companyId };
   }
-  async getMarketPrice(page: Page, filters: any, vehicleInfo: any) {
+  async getMarketPrice(
+    page: Page,
+    filters: any,
+    vehicleInfo: any,
+    vin?: string,
+  ) {
     const marketLookupStats = await sendAPIRequest(
       page,
       'https://app.dealercenter.net/api-gateway/inventory/MarketData/GetMarketPriceStatistics?mathching=0',
@@ -2004,6 +2024,16 @@ export class DCEngine {
         vehicleInfo,
       },
     );
+
+    // Check if no similar vehicles found (if VIN is provided)
+    if (
+      vin &&
+      (marketLookupStats.vehicleCount === 0 ||
+        marketLookupStats.vehicleCount < 1)
+    ) {
+      throw new NoCompFoundError(vin, marketLookupStats.vehicleCount);
+    }
+
     return marketLookupStats;
   }
   async getInventoryDetails(page: Page, inventoryId: string) {

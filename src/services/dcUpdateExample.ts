@@ -28,6 +28,7 @@ import { Page } from 'puppeteer';
 import { isVinBlocked, getBlockedVinDetails, blockVin } from './blockedVins';
 import { enqueueTelegramMessage } from './telegramQueue';
 import { UncoveredCaseError } from '../errors/uncoveredCaseError';
+import { NoCompFoundError } from '../errors/noCompFoundError';
 
 /**
  * Determines if a record is an Adesa record
@@ -56,7 +57,7 @@ function recordToVehicle(record: AuctionRecordUnion): IVehicle {
     model: record.model,
     year: record.year,
     odometer: record.odometer,
-    trim: isAdesaRecord(record) ? (record.trim || '') : '',
+    trim: isAdesaRecord(record) ? record.trim || '' : '',
   };
 }
 
@@ -102,7 +103,7 @@ async function performFullAppraisal(
       companyId,
     } = await dcEngine.getMarketPriceFilter(page, inventoryId);
 
-    // Get market price
+    // Get market price (will throw NoCompFoundError if no comps found)
     const {
       priceAvg: price,
       minPrice,
@@ -110,7 +111,7 @@ async function performFullAppraisal(
       matching,
       avgOdometer,
       vehicleCount,
-    } = await dcEngine.getMarketPrice(page, filters, vehicleInfo);
+    } = await dcEngine.getMarketPrice(page, filters, vehicleInfo, vehicle.vin);
 
     // Calculate prices
     const askingPrice = getJustBelowNearestThousand(price);
@@ -307,11 +308,12 @@ async function updateExistingAppraisal(
     );
     const { filters, vehicleInfo, id, companyId } = marketPriceFilter;
     vehicleInfo.odometer = record.odometer;
-    console.log(filters);
+
     const {
       filters: adjustedFilters,
       marketLookupData,
     } = await dcEngine.adjustFilters(page, filters, vehicleInfo);
+    // Get market price (will throw NoCompFoundError if no comps found)
     const {
       priceAvg: price,
       minPrice,
@@ -319,7 +321,13 @@ async function updateExistingAppraisal(
       matching,
       avgOdometer,
       vehicleCount,
-    } = await dcEngine.getMarketPrice(page, adjustedFilters, vehicleInfo);
+    } = await dcEngine.getMarketPrice(
+      page,
+      adjustedFilters,
+      vehicleInfo,
+      record.vin,
+    );
+
     const askingPrice = getJustBelowNearestThousand(price);
     const marginPrice = getMarginPrice(askingPrice);
     const itemCost = getSumOfNumbersInDollars(note);
@@ -457,9 +465,11 @@ export async function updateDCForAuctionRecord(
   if (blocked) {
     const details = await getBlockedVinDetails(record.vin);
     console.warn(
-      `\n🚫 VIN ${record.vin} is blocked from processing. Reason: ${details?.reason || 'Unknown'}`,
+      `\n🚫 VIN ${
+        record.vin
+      } is blocked from processing. Reason: ${details?.reason || 'Unknown'}`,
     );
-    
+
     // Queue Telegram alert about blocked VIN attempt
     if (details) {
       await enqueueTelegramMessage({
@@ -471,7 +481,8 @@ export async function updateDCForAuctionRecord(
 
     return {
       success: false,
-      error: `VIN is blocked: ${details?.reason || 'Unknown reason'}. Please unblock the VIN after fixing the issue.`,
+      error: `VIN is blocked: ${details?.reason ||
+        'Unknown reason'}. Please unblock the VIN after fixing the issue.`,
     };
   }
 
@@ -494,13 +505,51 @@ export async function updateDCForAuctionRecord(
     page = await dcEngine.openScraper();
 
     // Get authentication token
-    const token = await dcEngine.getToken(page);
+    let token = await dcEngine.getToken(page);
+
+    // If no token, attempt to login first
     if (!token) {
-      return {
-        success: false,
-        error: 'Failed to get authentication token',
-      };
+      console.log('🔐 No token found, attempting to login...');
+      try {
+        await dcEngine.forceLogin(page);
+        // Try to get token again after login
+        token = await dcEngine.getToken(page);
+        if (!token) {
+          const errorMsg =
+            'Failed to get authentication token after login attempt';
+
+          // Send Telegram alert
+          await enqueueTelegramMessage({
+            type: 'system_health',
+            component: 'DC Authentication',
+            status: `Failed to get token after login for VIN: ${record.vin}`,
+          });
+
+          return {
+            success: false,
+            error: errorMsg,
+          };
+        }
+        console.log('✅ Login successful, token obtained');
+      } catch (loginError) {
+        const errorMessage =
+          loginError instanceof Error ? loginError.message : 'Unknown error';
+        console.error('❌ Login failed:', loginError);
+
+        // Send Telegram alert for login failure
+        await enqueueTelegramMessage({
+          type: 'system_health',
+          component: 'DC Authentication',
+          status: `Login failed: ${errorMessage}. VIN: ${record.vin}`,
+        });
+
+        return {
+          success: false,
+          error: `Login failed: ${errorMessage}`,
+        };
+      }
     }
+
     dcEngine.setToken(token);
 
     // Check for VIN duplication (primary check)
@@ -534,7 +583,7 @@ export async function updateDCForAuctionRecord(
     }
   } catch (error) {
     console.error(`❌ Error in DC update for VIN: ${record.vin}`, error);
-    
+
     // If it's an UncoveredCaseError, block the VIN and queue Telegram alert
     if (error instanceof UncoveredCaseError) {
       // Block the VIN
@@ -558,7 +607,30 @@ export async function updateDCForAuctionRecord(
         error: `Uncovered case detected: ${error.message}. VIN has been blocked.`,
       };
     }
-    
+
+    // If it's a NoCompFoundError, block the VIN and queue Telegram alert
+    if (error instanceof NoCompFoundError) {
+      // Block the VIN
+      await blockVin(
+        record.vin,
+        'No similar vehicles (comps) found in DC',
+        undefined,
+        error.message,
+      );
+
+      // Queue Telegram alert
+      await enqueueTelegramMessage({
+        type: 'system_health',
+        component: 'DC Market Price',
+        status: `No comps found for VIN: ${record.vin}. Vehicle count: ${error.vehicleCount}`,
+      });
+
+      return {
+        success: false,
+        error: `No comps found: ${error.message}. VIN has been blocked.`,
+      };
+    }
+
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
