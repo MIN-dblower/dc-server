@@ -8,11 +8,10 @@ import {
 import { findFileByName, listFilesInFolder } from './googledrive';
 import { processAuctionFile } from './auctionFileProcessor';
 import { processAdesaFile } from './adesaFileProcessor';
-import { sendUpdateToAPI } from './auction';
 
 /**
  * Auction Monitor Service
- * 
+ *
  * Monitors Google Drive folders for auction files based on schedule
  * and processes them according to business rules
  */
@@ -42,7 +41,9 @@ export class AuctionMonitor {
    */
   private isPastCutoffTime(window: MonitoringWindow): boolean {
     const now = DateTime.now().setZone(DEFAULT_TIME_ZONE);
-    const end = DateTime.fromJSDate(window.endDate, { zone: DEFAULT_TIME_ZONE });
+    const end = DateTime.fromJSDate(window.endDate, {
+      zone: DEFAULT_TIME_ZONE,
+    });
     return now > end;
   }
 
@@ -62,7 +63,7 @@ export class AuctionMonitor {
     // Check if past cutoff time
     if (this.isPastCutoffTime(window)) {
       console.log(
-        `Monitoring window for ${window.auctionType} has passed cutoff time, stopping monitoring`
+        `Monitoring window for ${window.auctionType} has passed cutoff time, stopping monitoring`,
       );
       return;
     }
@@ -70,23 +71,25 @@ export class AuctionMonitor {
     try {
       const folderId = this.getFolderId(window.auctionType);
       console.log(
-        `Looking for file "${window.fileName}" in ${window.auctionType} folder (${folderId})`
+        `Looking for file "${window.fileName}" in ${window.auctionType} folder (${folderId})`,
       );
 
       // Try exact match first
       let file = await findFileByName(folderId, window.fileName);
-      
+
       // If not found, try pattern match (in case of slight naming variations)
       if (!file) {
         const pattern = new RegExp(
           window.fileName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
-          'i'
+          'i',
         );
         file = await findFileByName(folderId, pattern);
       }
 
       if (!file) {
-        console.log(`File "${window.fileName}" not found yet, will check again later`);
+        console.log(
+          `File "${window.fileName}" not found yet, will check again later`,
+        );
         return;
       }
 
@@ -98,29 +101,40 @@ export class AuctionMonitor {
 
       // Process the file
       if (!file.id || !file.name) {
-        console.error(`File missing required properties: ${JSON.stringify(file)}`);
+        console.error(
+          `File missing required properties: ${JSON.stringify(file)}`,
+        );
         return;
       }
-      
+      console.log(`File: ${file.name} (ID: ${file.id})`);
+      console.log(`Is Google Sheet: ${isGoogleSheet}`);
       // Use Adesa processor for Adesa files, regular processor for Edge
       if (window.auctionType === AuctionType.ADESA) {
-        const result = await processAdesaFile(file.id, file.name, isGoogleSheet);
-        
+        const result = await processAdesaFile(
+          file.id,
+          file.name,
+          isGoogleSheet,
+        );
+
         console.log(
-          `✅ Successfully processed ${window.fileName}: ${result.newRecords.length} new, ${result.updatedRecords.length} updated`
+          `✅ Successfully processed ${window.fileName}: ${result.newRecords.length} new, ${result.updatedRecords.length} updated`,
         );
         console.log(
-          `   DC Updates: ${result.dcUpdateResults.successful} successful, ${result.dcUpdateResults.failed} failed`
+          `   DC Updates: ${result.dcUpdateResults.successful} successful, ${result.dcUpdateResults.failed} failed`,
         );
       } else {
         // Edge Pipeline uses the regular processor
-        const result = await processAuctionFile(file.id, file.name, isGoogleSheet);
+        const result = await processAuctionFile(
+          file.id,
+          file.name,
+          isGoogleSheet,
+        );
 
         console.log(
-          `✅ Successfully processed ${window.fileName}: ${result.newRecords.length} new, ${result.updatedRecords.length} updated`
+          `✅ Successfully processed ${window.fileName}: ${result.newRecords.length} new, ${result.updatedRecords.length} updated`,
         );
         console.log(
-          `   DC Updates: ${result.dcUpdateResults.successful} successful, ${result.dcUpdateResults.failed} failed`
+          `   DC Updates: ${result.dcUpdateResults.successful} successful, ${result.dcUpdateResults.failed} failed`,
         );
       }
     } catch (error) {
@@ -139,7 +153,9 @@ export class AuctionMonitor {
    */
   private async runMonitoringCheck(): Promise<void> {
     const now = DateTime.now().setZone(DEFAULT_TIME_ZONE);
-    console.log(`\n🔍 Running monitoring check at ${now.toISO()} (${DEFAULT_TIME_ZONE})`);
+    console.log(
+      `\n🔍 Running monitoring check at ${now.toISO()} (${DEFAULT_TIME_ZONE})`,
+    );
 
     const activeWindows = getActiveMonitoringWindows(now.toJSDate());
 
@@ -152,11 +168,13 @@ export class AuctionMonitor {
 
     for (const window of activeWindows) {
       console.log(
-        `\n📅 Monitoring ${window.auctionType.toUpperCase()} auction:`
+        `\n📅 Monitoring ${window.auctionType.toUpperCase()} auction:`,
       );
       console.log(`   File: ${window.fileName}`);
-      console.log(`   Window: ${window.startDate.toISOString()} to ${window.endDate.toISOString()}`);
-      
+      console.log(
+        `   Window: ${window.startDate.toISOString()} to ${window.endDate.toISOString()}`,
+      );
+
       await this.processFileForWindow(window);
     }
   }
@@ -171,13 +189,13 @@ export class AuctionMonitor {
     console.log(`   Edge folder ID: ${this.config.edgeFolderId}`);
 
     // Run initial check
-    this.runMonitoringCheck().catch((error) => {
+    this.runMonitoringCheck().catch(error => {
       console.error('Error in initial monitoring check:', error);
     });
 
     // Schedule periodic checks
     this.monitoringInterval = setInterval(() => {
-      this.runMonitoringCheck().catch((error) => {
+      this.runMonitoringCheck().catch(error => {
         console.error('Error in monitoring check:', error);
       });
     }, this.config.pollIntervalMs);
@@ -188,7 +206,7 @@ export class AuctionMonitor {
    */
   public stop(): void {
     console.log('🛑 Stopping Auction Monitor Service');
-    
+
     if (this.monitoringInterval) {
       clearInterval(this.monitoringInterval);
       this.monitoringInterval = undefined;
@@ -201,6 +219,4 @@ export class AuctionMonitor {
   public async checkNow(): Promise<void> {
     await this.runMonitoringCheck();
   }
-
 }
-

@@ -13,6 +13,10 @@ type DriveFile = Pick<
   'id' | 'name' | 'mimeType' | 'modifiedTime' | 'size' | 'webViewLink'
 >;
 
+// Cache the OAuth client to avoid creating multiple instances
+// which can cause token refresh conflicts
+let cachedOAuthClient: OAuth2Client | null = null;
+
 function getEnvVar(key: string): string {
   const value = process.env[key];
   if (!value) {
@@ -22,6 +26,11 @@ function getEnvVar(key: string): string {
 }
 
 function getOAuthClient(): OAuth2Client {
+  // Return cached client if it exists
+  if (cachedOAuthClient) {
+    return cachedOAuthClient;
+  }
+
   const clientId = getEnvVar('GOOGLE_OAUTH_CLIENT_ID');
   const clientSecret = getEnvVar('GOOGLE_OAUTH_CLIENT_SECRET');
   const redirectUri = getEnvVar('GOOGLE_OAUTH_REDIRECT_URI');
@@ -34,32 +43,19 @@ function getOAuthClient(): OAuth2Client {
   );
   oAuth2Client.setCredentials({ refresh_token: refreshToken });
 
+  // Cache the client for reuse
+  cachedOAuthClient = oAuth2Client;
+
   return oAuth2Client;
 }
 
 async function getDriveClient(): Promise<drive_v3.Drive> {
   const auth = getOAuthClient();
-  const accessTokenResponse = await auth.getAccessToken();
-
-  const token =
-    typeof accessTokenResponse === 'string'
-      ? accessTokenResponse
-      : accessTokenResponse?.token ?? null;
-
-  if (!token) {
-    throw new Error('Unable to obtain an access token for Google Drive');
-  }
-
-  const tokenInfo = await auth.getTokenInfo(token);
-  const grantedScopes = tokenInfo.scopes ?? [];
-  const missingScopes = SCOPES.filter((scope) => !grantedScopes.includes(scope));
-
-  if (missingScopes.length > 0) {
-    throw new Error(
-      `OAuth2 credentials are missing required scopes: ${missingScopes.join(', ')}`
-    );
-  }
-
+  
+  // The googleapis library will automatically handle token refresh
+  // when making API calls, so we don't need to call getAccessToken() here
+  // This avoids potential conflicts during token refresh
+  
   return google.drive({ version: 'v3', auth });
 }
 
@@ -68,27 +64,11 @@ async function getDriveClient(): Promise<drive_v3.Drive> {
  */
 async function getSheetsClient(): Promise<sheets_v4.Sheets> {
   const auth = getOAuthClient();
-  const accessTokenResponse = await auth.getAccessToken();
-
-  const token =
-    typeof accessTokenResponse === 'string'
-      ? accessTokenResponse
-      : accessTokenResponse?.token ?? null;
-
-  if (!token) {
-    throw new Error('Unable to obtain an access token for Google Sheets');
-  }
-
-  const tokenInfo = await auth.getTokenInfo(token);
-  const grantedScopes = tokenInfo.scopes ?? [];
-  const missingScopes = SCOPES.filter((scope) => !grantedScopes.includes(scope));
-
-  if (missingScopes.length > 0) {
-    throw new Error(
-      `OAuth2 credentials are missing required scopes: ${missingScopes.join(', ')}`
-    );
-  }
-
+  
+  // The googleapis library will automatically handle token refresh
+  // when making API calls, so we don't need to call getAccessToken() here
+  // This avoids potential conflicts during token refresh
+  
   return google.sheets({ version: 'v4', auth });
 }
 
@@ -100,7 +80,6 @@ export async function listFilesInFolder(
   pageSize = 100
 ): Promise<DriveFile[]> {
   const drive = await getDriveClient();
-
   let pageToken: string | undefined;
   const files: DriveFile[] = [];
 

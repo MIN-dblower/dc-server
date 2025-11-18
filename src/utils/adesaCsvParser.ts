@@ -23,7 +23,6 @@ export function parseAdesaCSV(csv: string): AdesaRecord[] {
         console.warn(`Row has insufficient columns (${col.length}), skipping: ${row.substring(0, 100)}`);
         return null;
       }
-      console.log(col[14])
 
       return {
         laneRun: col[0]?.trim() || '',
