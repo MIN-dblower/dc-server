@@ -1,5 +1,7 @@
 import { AuctionMonitor } from '../services/auctionMonitor';
-import { initializeDCUpdate } from '../services/dcUpdateExample';
+import * as dotenv from 'dotenv';
+
+dotenv.config();
 
 /**
  * Auction Monitor Worker
@@ -20,9 +22,8 @@ async function main(): Promise<void> {
   console.log('🚀 Starting Auction Monitor Worker...\n');
 
   try {
-    // Initialize DC update function
-    // TODO: Replace with your actual DC update implementation
-    initializeDCUpdate();
+    // DC update function is now called directly from dcUpdateInterface
+    // No initialization needed
 
     // Get configuration from environment variables
     const adesaFolderId = getEnvVar('GOOGLE_DRIVE_ADESA_FOLDER_ID');
