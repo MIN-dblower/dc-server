@@ -1,41 +1,50 @@
-Process Steps:
+# Dealer Center Update Process
 
-Get vin
-Get odometer
-Set parameters/trim
-Post notes
-Open market data
-Set market comps
-Set retail and lock
-Add lot fee
-Add recon
-Calculate auction fee
-Lock profit
-Save
+## Process Steps
 
+1. Get VIN
+2. Get odometer
+3. Set parameters/trim
+4. Post notes
+5. Open market data
+6. Set market comps
+7. Set retail and lock
+8. Add lot fee
+9. Add recon
+10. Calculate auction fee
+11. Lock profit
+12. Save
 
+## Flow
 
-Flow
-1. Check if a vehicle with vin is already registered on the DC
-1.1 If registered, get inventory id
-1.2 If not, go to 2
-2. Check market average price 
-i.g. 34000 -> 33998
-Lock pricing
-set margin(ref: Excel Sheet) based on asking price
-additional fees Lot fee should always be 500
+### 1. VIN Check
+- Check if vehicle with VIN is already registered on Dealer Center
+- **If registered:** Get inventory ID and proceed with update
+- **If not registered:** Proceed with new vehicle creation
 
-appraisal value --> Adesa fee list extra $50
+### 2. Market Pricing
+- Check market average price (e.g., 34000 → 33998)
+- Lock pricing
+- Set margin based on asking price (reference: Excel Sheet)
 
-REcondition = $110(for inspection) + 
-Base Recon Array:
+### 3. Fees
 
-0 - 25000 mile - $175
-25001 - 50000 - $275
-50001 - 75000 - $375
-75000+ - $500
-+ 
-$125(detail cleaning)
+**Lot Fee:**
+- Always $500
 
+**Auction Fee:**
+- Appraisal value → Adesa fee list
+- Extra $50 for Adesa auctions
+
+**Reconditioning:**
+- Base: $110 (inspection)
+- Mileage-based recon:
+  - 0 - 25,000 miles: $175
+  - 25,001 - 50,000 miles: $275
+  - 50,001 - 75,000 miles: $375
+  - 75,000+ miles: $500
+- Detail cleaning: $125
+
+**Total Reconditioning = Base ($110) + Mileage-Based + Detail Cleaning ($125)**
 
 

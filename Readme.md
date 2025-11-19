@@ -135,6 +135,16 @@ POLL_INTERVAL_MS=300000
 
 # Optional: Cutoff time in hours (default: 12 = 12 PM)
 CUTOFF_TIME_HOURS=12
+
+# Redis (BullMQ job queue)
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_PASSWORD=
+REDIS_DB=0
+
+# Telegram Bot (alerts)
+TELEGRAM_BOT_TOKEN=your_bot_token
+TELEGRAM_CHAT_ID=your_chat_id
 ```
 
 ### Getting Folder IDs
@@ -157,11 +167,19 @@ CUTOFF_TIME_HOURS=12
 
 ### Running the Monitor
 
-Start the auction monitor worker:
+Start the auction monitor worker (producer) in one terminal:
 
 ```bash
 dotenv -e .env -- npx ts-node src/workers/auctionMonitor.ts
 ```
+
+Start the DC sync worker (consumer) in another terminal:
+
+```bash
+dotenv -e .env -- npx ts-node src/workers/dcSyncWorker.ts
+```
+
+> ⚠️ Only one DC sync worker should run at a time (it processes jobs sequentially).
 
 The monitor will:
 1. Check for active monitoring windows based on the current date
@@ -169,7 +187,14 @@ The monitor will:
 3. Download and parse the file when found
 4. Detect new VINs (import all data) and existing VINs (append only changed records)
 5. Save records to the database
-6. Send updates to the API
+6. Enqueue updates for the DC sync worker
+
+The DC sync worker will:
+1. Process each VIN sequentially (BullMQ queue)
+2. Call the DC update function (Puppeteer)
+3. Save records to the database only after successful DC update
+4. Retry failed jobs automatically (3 attempts, exponential backoff)
+5. Send Telegram alerts on failure/health events
 
 ### File Processing Logic
 
@@ -184,6 +209,45 @@ The monitor will:
 - Files are only processed once per monitoring window (tracked internally)
 - If a file is not found, the monitor will continue checking at the configured interval
 - The system gracefully handles Google Drive API errors and refresh token expiration
+
+### Blocked VINs Management
+
+When the system encounters an uncovered case in `completeVehicleBuild` (e.g., a question type that hasn't been implemented yet), it will:
+
+1. **Block the VIN** - The VIN is automatically added to a blocked list in Redis
+2. **Send Telegram Alert** - You'll receive a detailed alert with:
+   - VIN number
+   - Question details (key, type, book)
+   - Vehicle trim
+   - Full question object for debugging
+3. **Skip Future Processing** - The VIN will be skipped in future processing attempts until manually unblocked
+
+#### Managing Blocked VINs
+
+Use the management script to view and unblock VINs:
+
+```bash
+# List all blocked VINs
+npx ts-node src/scripts/manageBlockedVins.ts list
+
+# View details for a specific VIN
+npx ts-node src/scripts/manageBlockedVins.ts view <VIN>
+
+# Unblock a VIN (after fixing the issue)
+npx ts-node src/scripts/manageBlockedVins.ts unblock <VIN>
+```
+
+**Important**: Only unblock a VIN after you've:
+1. Reviewed the question object from the Telegram alert
+2. Implemented the missing case in `completeVehicleBuild`
+3. Tested the implementation
+
+#### How It Works
+
+- **Detection**: When `completeVehicleBuild` hits an uncovered case (question type not handled), it throws an `UncoveredCaseError`
+- **Blocking**: The VIN is immediately added to Redis with details about why it was blocked
+- **Notification**: Telegram alert is sent with all relevant information
+- **Prevention**: Before processing any VIN, the system checks if it's blocked and skips it if so
 
 ### Testing the System
 
@@ -213,4 +277,24 @@ import { processAuctionFile } from './services/auctionFileProcessor';
 // Process a file from Google Drive
 const result = await processAuctionFile(fileId, fileName, isGoogleSheet);
 console.log(`New: ${result.newRecords.length}, Updated: ${result.updatedRecords.length}`);
+```
+
+### PM2 Deployment
+
+After building the project, you can run all workers via the provided PM2 ecosystem file:
+
+```bash
+# Build TypeScript → dist JS
+npm run build
+
+# Start monitor, DC sync worker, and dashboard together
+pm2 start ecosystem.config.js
+
+# View logs
+pm2 logs drive-monitor
+pm2 logs dc-sync
+pm2 logs queue-dashboard
+
+# Persist processes across restarts
+pm2 save
 ```

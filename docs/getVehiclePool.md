@@ -1,6 +1,8 @@
-# Get Similar Vehicles
+# Get Vehicle Pool
 
-1. Get vehicle Book
+Get similar vehicles for market comparison. See [API Documentation](./API.md) for full details.
+
+## Request Example
 
 ```json
 {
