@@ -1,7 +1,6 @@
-
 {
-    "singleQuote": true,
-    "trailingComma": "all",
-    "semi": true
-  }
-  
+  "singleQuote": true,
+  "trailingComma": "all",
+  "semi": true,
+  "@typescript-eslint/no-explicit-any": "off"
+}

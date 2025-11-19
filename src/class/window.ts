@@ -33,11 +33,12 @@ export class Window {
     return pages[index];
   }
   async connect() {
+    console.log(process.env.PROXY);
     const options = {
       defaultViewport: null,
       args: [
         // "--start-maximized",
-        '--proxy-server=http://139.171.66.126:50100',
+        `--proxy-server=${process.env.PROXY}`,
       ],
       headless: this.headless,
       devtools: false,
@@ -52,10 +53,10 @@ export class Window {
     // const pages = await this.browser.pages();
     // this.page = pages[0];
     [this.page] = await this.browser.pages();
-    await this.page.authenticate({
-      username: 'ted563473',
-      password: 'YvYtg2iIdt',
-    });
+    // await this.page.authenticate({
+    //   username: 'ted563473',
+    //   password: 'YvYtg2iIdt',
+    // });
     // await this.page.setRequestInterception(true);
     // this.page.on('request', (request) => {
     //     // Use the resourceType method to determine the type of the request
@@ -98,8 +99,8 @@ export async function sendAPIRequest(
         },
         body: method === 'POST' ? JSON.stringify(body) : null,
       })
-        .then(response => response.json())
-        .catch(error => {
+        .then((response: any) => response.json())
+        .catch((error: any) => {
           console.error('Fetch error:', error);
           return null; // Return null in case of error
         });
