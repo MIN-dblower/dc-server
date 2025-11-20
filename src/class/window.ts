@@ -112,3 +112,42 @@ export async function sendAPIRequest(
   );
   return result;
 }
+
+export async function sendFormRequest(
+  page: Page,
+  url: string,
+  method: 'GET' | 'POST',
+  headers: Record<string, any> = {},
+  body: Record<string, any>,
+) {
+  const result = await page.evaluate(
+    (url, method, body, headers) => {
+      const formData = new URLSearchParams();
+      Object.keys(body).forEach(key => formData.append(key, body[key]));
+      // This function runs in the browser context, so async/await cannot be used here
+      return fetch(url, {
+        method: method,
+        headers: {
+          ...headers,
+        },
+        body: method === 'POST' ? formData.toString() : null,
+      })
+        .then((response: any) => {
+          return {
+            status: response.status,
+            redirected: response.redirected,
+            url: response.url,
+          };
+        })
+        .catch((error: any) => {
+          console.error('Fetch error:', error);
+          return null; // Return null in case of error
+        });
+    },
+    url,
+    method,
+    body,
+    headers,
+  );
+  return result;
+}
