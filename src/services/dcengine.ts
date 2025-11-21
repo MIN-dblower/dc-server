@@ -11,6 +11,50 @@ import { findBestMatch } from '../utils/stringSimilarity';
 import { UncoveredCaseError } from '../errors/uncoveredCaseError';
 import { NoCompFoundError } from '../errors/noCompFoundError';
 
+const FILTER_LOG_PREFIX = '[MarketFilters]';
+const LOCATION_RADIUS_PRESET = [
+  5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100,
+  200, 300, 400, 500, 600, 700, 800, 900, 1000, 5000,
+];
+const TARGET_COMP_MIN = 10;
+const TARGET_COMP_MAX = 13;
+const RADIUS_WEIGHT = 3;
+const MILEAGE_WEIGHT = 4;
+const TRANSMISSION_WEIGHT = 0.6;
+const IS_ACTIVE_WEIGHT = 3;
+const MILEAGE_STEP = 7500;
+const MIN_ODOMETER_LIMIT = 5000;
+const MAX_ODOMETER_LIMIT = 500000;
+const DEFAULT_ODOMETER_MAX = MAX_ODOMETER_LIMIT;
+const MAX_SEARCH_ITERATIONS = 40;
+type TransmissionMode = 'original' | 'expanded';
+
+interface FilterSearchState {
+  radiusIdx: number;
+  odometerMin: number | null;
+  odometerMax: number | null;
+  isActive: 0 | 1;
+  transmissionsMode: TransmissionMode;
+  transmissions: string[] | null;
+  cost: number;
+  depth: number;
+  score?: number;
+}
+
+interface EvaluationResult {
+  filters: any;
+  marketLookupData: any;
+  count: number;
+}
+
+interface CandidateEvaluation {
+  state: FilterSearchState;
+  evaluation: EvaluationResult;
+  axis: string;
+  delta: number;
+  weightedScore: number;
+}
+
 let loginPromise: Promise<void> | null = null;
 let accessToken: string | null;
 export class DCEngine {
@@ -383,7 +427,7 @@ export class DCEngine {
         equipments: [],
         fuelTypes: [],
         geoCoordinate: null,
-        isActive: 1,
+        isActive: 0,
         isCertified: null,
         longitude: 0,
         latitude: 0,
@@ -862,40 +906,7 @@ export class DCEngine {
       { headers: { Authorization: `Bearer ${accessToken}` } },
     );
     console.log(buildMatchingData);
-    const locationPreset = [
-      5,
-      10,
-      15,
-      20,
-      25,
-      30,
-      35,
-      40,
-      45,
-      50,
-      55,
-      60,
-      65,
-      70,
-      75,
-      80,
-      85,
-      90,
-      95,
-      100,
-      200,
-      300,
-      400,
-      500,
-      600,
-      700,
-      800,
-      900,
-      1000,
-      5000,
-    ];
-    let locationIndex = 23;
-    const filters = {
+    const initialFilters = {
       bodyStyles: buildMatchingData.optionCollection.bodyStyles.map(
         (el: any) => el.name,
       ),
@@ -936,10 +947,12 @@ export class DCEngine {
       stockNumber: '',
       year: vehicleMeta.year,
       make: vehicleMeta.make,
-      model: filters.modelAggregate.length
-        ? filters.modelAggregate[0]
+      model: initialFilters.modelAggregate.length
+        ? initialFilters.modelAggregate[0]
         : vehicleMeta.model,
-      trim: filters.trims.length ? filters.trims[0] : vehicleMeta.trim,
+      trim: initialFilters.trims.length
+        ? initialFilters.trims[0]
+        : vehicleMeta.trim,
       odometer: odometerInput,
       body: vehicleMeta.body,
       color: null,
@@ -961,81 +974,14 @@ export class DCEngine {
       equipmentIds: vehicleMeta.equipmentIds,
     };
 
-    let previousCount = -1;
-    let isSet = false;
-    do {
-      filters.radiusInMiles = locationPreset[locationIndex];
-      console.log('Milage: ', locationPreset[locationIndex], filters);
-      const { data: marketLookupData } = await axios.post(
-        'https://app.dealercenter.net/api-gateway/inventory/MarketData/GetFilterLookupData',
-        {
-          filters,
-          maxDigitalPriceLockType: null,
-          vehicleInfo,
-        },
-        { headers: { Authorization: `Bearer ${accessToken}` } },
-      );
-      const count = marketLookupData.listings.reduce(
-        (sum: number, item: any) => sum + item.count,
-        0,
-      );
-      // Filter
-      if (
-        marketLookupData.transmissions.length &&
-        !filters.transmissions.includes(marketLookupData.transmissions[0].name)
-      ) {
-        filters.transmissions = marketLookupData.transmissions.map(
-          (el: any) => el.name,
-        );
-        console.log('reset');
-        isSet = false;
-        continue;
-      }
-      console.log('Result: ', count, previousCount, isSet);
-      if (previousCount === -1) previousCount = count;
-      if (count >= 10 && count < 20) {
-        // this is an ideal case.
-        break;
-      }
-      if (isSet && previousCount >= 20 && count < 10) {
-        locationIndex += 1;
-        filters.radiusInMiles = locationPreset[locationIndex];
-        break;
-      }
-      if (isSet && previousCount < 9 && count >= 20) {
-        locationIndex -= 1;
-        filters.radiusInMiles = locationPreset[locationIndex];
-        break;
-      }
-      if (isSet && previousCount < 10 && count < 10) {
-        if (locationIndex < locationPreset.length - 1) locationIndex += 1;
-        else {
-          if (filters.odometerMax && filters.odometerMax + 15000 < 100000)
-            filters.odometerMax += 15000;
-          else filters.odometerMax = null;
-
-          if (filters.odometerMin && filters.odometerMin - 15000 > 5000)
-            filters.odometerMin -= 15000;
-          else filters.odometerMin = null;
-
-          if (filters.odometerMax === null && filters.odometerMin === null) {
-            break;
-          }
-          isSet = false;
-          continue;
-        }
-      }
-      if (isSet && previousCount >= 20 && count >= 20) {
-        if (locationIndex > 0) locationIndex -= 1;
-        else break;
-      }
-      previousCount = count;
-      isSet = true;
-    } while (true);
+    const {
+      filters: adjustedFilters,
+      marketLookupData,
+    } = await this.adjustFilters(page, initialFilters, vehicleInfo);
     const { data: marketLookupStats } = await axios.post(
       'https://app.dealercenter.net/api-gateway/inventory/MarketData/GetMarketPriceStatistics?mathching=0',
       {
-        filters,
+        filters: adjustedFilters,
         maxDigitalPriceLockType: null,
         vehicleInfo,
       },
@@ -1046,7 +992,7 @@ export class DCEngine {
     const { data: priceRankingData } = await axios.post(
       `https://app.dealercenter.net/api-gateway/inventory/MarketData/GetPriceRankings?matching=${marketLookupStats.vehicleCount}`,
       {
-        filters,
+        filters: adjustedFilters,
         maxDigitalPriceLockType: null,
         vehicleInfo,
       },
@@ -1055,7 +1001,7 @@ export class DCEngine {
     const { data: marketStatisticsData } = await axios.post(
       `https://app.dealercenter.net/api-gateway/inventory/MarketData/GetMarketPriceStatistics?mathching=${marketLookupStats.vehicleCount}`,
       {
-        filters,
+        filters: adjustedFilters,
         maxDigitalPriceLockType: null,
         vehicleInfo,
       },
@@ -1065,7 +1011,7 @@ export class DCEngine {
     const { data: marketSupplyData } = await axios.post(
       `https://app.dealercenter.net/api-gateway/inventory/MarketData/GetMarketListDaysSupply`,
       {
-        filters,
+        filters: adjustedFilters,
         maxDigitalPriceLockType: null,
         currentVehicle: vehicleInfo,
         marketAnalyticsRequestSort: {
@@ -1140,7 +1086,7 @@ export class DCEngine {
         entityTypeID: 3,
         marketDataProviderID: 1,
         marketDataRequest: {
-          filters,
+          filters: adjustedFilters,
           maxDigitalPriceLockType: 0,
           vehicleInfo,
         },
@@ -1405,40 +1351,7 @@ export class DCEngine {
       },
     );
 
-    const locationPreset = [
-      5,
-      10,
-      15,
-      20,
-      25,
-      30,
-      35,
-      40,
-      45,
-      50,
-      55,
-      60,
-      65,
-      70,
-      75,
-      80,
-      85,
-      90,
-      95,
-      100,
-      200,
-      300,
-      400,
-      500,
-      600,
-      700,
-      800,
-      900,
-      1000,
-      5000,
-    ];
-    let locationIndex = 23;
-    const filters = {
+    const initialFilters = {
       bodyStyles: buildMatchingData.optionCollection.bodyStyles.map(
         (el: any) => el.name,
       ),
@@ -1479,10 +1392,10 @@ export class DCEngine {
       stockNumber: '',
       year: vehicleMeta.year,
       make: vehicleMeta.make,
-      model: filters.modelAggregate.length
-        ? filters.modelAggregate[0]
+      model: initialFilters.modelAggregate.length
+        ? initialFilters.modelAggregate[0]
         : vehicleMeta.model,
-      trim: filters.trims.length ? filters.trims[0] : vehicleMeta.trim,
+      trim: initialFilters.trims.length ? initialFilters.trims[0] : vehicleMeta.trim,
       odometer,
       body: vehicleMeta.body,
       color: null,
@@ -1504,80 +1417,14 @@ export class DCEngine {
       equipmentIds: vehicleMeta.equipmentIds,
     };
 
-    let previousCount = -1;
-    let isSet = false;
-    do {
-      filters.radiusInMiles = locationPreset[locationIndex];
-      const marketLookupData = await sendAPIRequest(
-        page,
-        'https://app.dealercenter.net/api-gateway/inventory/MarketData/GetFilterLookupData',
-        'POST',
-        { Authorization: `Bearer ${accessToken}` },
-        { filters, maxDigitalPriceLockType: null, vehicleInfo },
-      );
-      const count = marketLookupData.listings.reduce(
-        (sum: number, item: any) => sum + item.count,
-        0,
-      );
-      // Filter
-      if (
-        marketLookupData.transmissions.length &&
-        !filters.transmissions.includes(marketLookupData.transmissions[0].name)
-      ) {
-        filters.transmissions = marketLookupData.transmissions.map(
-          (el: any) => el.name,
-        );
-        console.log('reset');
-        isSet = false;
-        continue;
-      }
-      console.log('Similar Vehicles found: ', count);
-      if (previousCount === -1) previousCount = count;
-      if (count >= 10 && count < 20) {
-        // this is an ideal case.
-        break;
-      }
-      if (isSet && previousCount >= 20 && count < 10) {
-        locationIndex += 1;
-        filters.radiusInMiles = locationPreset[locationIndex];
-        break;
-      }
-      if (isSet && previousCount < 9 && count >= 20) {
-        locationIndex -= 1;
-        filters.radiusInMiles = locationPreset[locationIndex];
-        break;
-      }
-      if (isSet && previousCount < 10 && count < 10) {
-        if (locationIndex < locationPreset.length - 1) locationIndex += 1;
-        else {
-          if (filters.odometerMax && filters.odometerMax + 15000 < 100000)
-            filters.odometerMax += 15000;
-          else filters.odometerMax = null;
-
-          if (filters.odometerMin && filters.odometerMin - 15000 > 5000)
-            filters.odometerMin -= 15000;
-          else filters.odometerMin = null;
-
-          if (filters.odometerMax === null && filters.odometerMin === null) {
-            break;
-          }
-          isSet = false;
-          continue;
-        }
-      }
-      if (isSet && previousCount >= 20 && count >= 20) {
-        if (locationIndex > 0) locationIndex -= 1;
-        else break;
-      }
-      previousCount = count;
-      isSet = true;
-    } while (true);
+    const { filters: adjustedFilters, marketLookupData } =
+      await this.adjustFilters(page, initialFilters, vehicleInfo);
     const marketLookupStats = await sendAPIRequest(
       page,
       'https://app.dealercenter.net/api-gateway/inventory/MarketData/GetMarketPriceStatistics?mathching=0',
       'POST',
       { Authorization: `Bearer ${accessToken}` },
-      { filters, maxDigitalPriceLockType: null, vehicleInfo },
+      { filters: adjustedFilters, maxDigitalPriceLockType: null, vehicleInfo },
     );
     console.log(marketLookupStats.vehicleCount);
 
@@ -1595,7 +1442,7 @@ export class DCEngine {
       'POST',
       { Authorization: `Bearer ${accessToken}` },
       {
-        filters,
+        filters: adjustedFilters,
         maxDigitalPriceLockType: null,
         vehicleInfo,
       },
@@ -1605,7 +1452,7 @@ export class DCEngine {
       `https://app.dealercenter.net/api-gateway/inventory/MarketData/GetMarketPriceStatistics?mathching=${marketLookupStats.vehicleCount}`,
       'POST',
       { Authorization: `Bearer ${accessToken}` },
-      { filters, maxDigitalPriceLockType: null, vehicleInfo },
+      { filters: adjustedFilters, maxDigitalPriceLockType: null, vehicleInfo },
     );
     const marketSupplyData = await sendAPIRequest(
       page,
@@ -1613,7 +1460,7 @@ export class DCEngine {
       'POST',
       { Authorization: `Bearer ${accessToken}` },
       {
-        filters,
+        filters: adjustedFilters,
         maxDigitalPriceLockType: null,
         currentVehicle: vehicleInfo,
         marketAnalyticsRequestSort: {
@@ -1680,7 +1527,7 @@ export class DCEngine {
         entityTypeID: 3,
         marketDataProviderID: 1,
         marketDataRequest: {
-          filters,
+          filters: adjustedFilters,
           maxDigitalPriceLockType: null,
           vehicleInfo,
         },
@@ -1691,116 +1538,517 @@ export class DCEngine {
     // console.log(saveMarketPricingDetail);
   }
   async adjustFilters(page: Page, filters: any, vehicleInfo: any) {
-    // vehicleInfo.odometer = odometer;
-    const locationPreset = [
-      5,
-      10,
-      15,
-      20,
-      25,
-      30,
-      35,
-      40,
-      45,
-      50,
-      55,
-      60,
-      65,
-      70,
-      75,
-      80,
-      85,
-      90,
-      95,
-      100,
-      200,
-      300,
-      400,
-      500,
-      600,
-      700,
-      800,
-      900,
-      1000,
-      5000,
-    ];
-    let locationIndex =
-      locationPreset.indexOf(filters.radiusInMiles) > -1
-        ? locationPreset.indexOf(filters.radiusInMiles)
-        : 23;
-    let previousCount = -1;
-    let isSet = false;
-    let marketLookupData: any = null;
-    do {
-      filters.radiusInMiles = locationPreset[locationIndex];
-      marketLookupData = await sendAPIRequest(
+    console.log(
+      `${FILTER_LOG_PREFIX} Using weighted strategy, radius=${filters.radiusInMiles}, ` +
+        `odometerRange=${filters.odometerMin ?? 'null'}-${filters.odometerMax ?? 'null'}, ` +
+        `isActive=${filters.isActive ?? 0}`,
+    );
+    return this.adjustFiltersWeighted(page, filters, vehicleInfo);
+  }
+
+  private async adjustFiltersWeighted(
+    page: Page,
+    filters: any,
+    vehicleInfo: any,
+  ) {
+    const baseFilters = this.cloneFilters(filters);
+    const baseTransmissions = Array.isArray(baseFilters.transmissions)
+      ? [...baseFilters.transmissions]
+      : null;
+    const initialRange =
+      this.getInitialOdometerRange(vehicleInfo) ||
+      this.getNarrowOdometerRange(
+        vehicleInfo,
+        baseFilters.odometerMin,
+        baseFilters.odometerMax,
+      );
+
+    const initialState: FilterSearchState = {
+      radiusIdx: 0,
+      odometerMin: initialRange.min,
+      odometerMax: initialRange.max,
+      isActive: 0,
+      transmissionsMode: 'original',
+      transmissions: baseTransmissions ? [...baseTransmissions] : null,
+      cost: 0,
+      depth: 0,
+    };
+
+    let iterations = 0;
+    const evaluationCache = new Map<string, EvaluationResult>();
+    let currentState = initialState;
+
+    let currentEvaluation = await this.getEvaluation(
+      page,
+      vehicleInfo,
+      baseFilters,
+      baseTransmissions,
+      currentState,
+      evaluationCache,
+    );
+    let currentDelta = this.getCountDelta(currentEvaluation.count);
+    let bestResult: CandidateEvaluation = {
+      state: currentState,
+      evaluation: currentEvaluation,
+      axis: 'start',
+      delta: currentDelta,
+      weightedScore: currentDelta * RADIUS_WEIGHT,
+    };
+
+    if (
+      currentEvaluation.count >= TARGET_COMP_MIN &&
+      currentEvaluation.count <= TARGET_COMP_MAX
+    ) {
+      return {
+        filters: currentEvaluation.filters,
+        marketLookupData: currentEvaluation.marketLookupData,
+      };
+    }
+
+    while (iterations < MAX_SEARCH_ITERATIONS) {
+      iterations += 1;
+      currentEvaluation = await this.getEvaluation(
         page,
-        'https://app.dealercenter.net/api-gateway/inventory/MarketData/GetFilterLookupData',
-        'POST',
-        { Authorization: `Bearer ${accessToken}` },
-        {
-          filters,
-          maxDigitalPriceLockType: 1,
-          vehicleInfo,
-        },
+        vehicleInfo,
+        baseFilters,
+        baseTransmissions,
+        currentState,
+        evaluationCache,
       );
-      const count = marketLookupData.listings.reduce(
-        (sum: number, item: any) => sum + item.count,
-        0,
-      );
-      // Filter
+
+      currentDelta = this.getCountDelta(currentEvaluation.count);
+      currentState.score = currentDelta;
+      this.logWeightedEvaluation(currentState, currentEvaluation.count);
+
+      if (currentDelta < bestResult.delta) {
+        bestResult = {
+          state: currentState,
+          evaluation: currentEvaluation,
+          axis: 'current',
+          delta: currentDelta,
+          weightedScore: currentDelta * RADIUS_WEIGHT,
+        };
+      }
+
       if (
-        marketLookupData.transmissions.length &&
-        !filters.transmissions.includes(marketLookupData.transmissions[0].name)
+        currentEvaluation.count >= TARGET_COMP_MIN &&
+        currentEvaluation.count <= TARGET_COMP_MAX
       ) {
-        filters.transmissions = marketLookupData.transmissions.map(
-          (el: any) => el.name,
+        return {
+          filters: currentEvaluation.filters,
+          marketLookupData: currentEvaluation.marketLookupData,
+        };
+      }
+
+      const candidates = await this.buildAxisCandidates(
+        page,
+        vehicleInfo,
+        baseFilters,
+        baseTransmissions,
+        currentState,
+        evaluationCache,
+      );
+
+      if (!candidates.length) {
+        console.warn(
+          `${FILTER_LOG_PREFIX}[Weighted] No further candidates available.`,
         );
-        isSet = false;
-        continue;
-      }
-      console.log('Similar Vehicles Found: ', count);
-      if (previousCount === -1) previousCount = count;
-      if (count >= 10 && count < 20) {
-        // this is an ideal case.
         break;
       }
-      if (isSet && previousCount >= 20 && count < 10) {
-        locationIndex += 1;
-        filters.radiusInMiles = locationPreset[locationIndex];
-        break;
-      }
-      if (isSet && previousCount < 9 && count >= 20) {
-        locationIndex -= 1;
-        filters.radiusInMiles = locationPreset[locationIndex];
-        break;
-      }
-      if (isSet && previousCount < 10 && count < 10) {
-        if (locationIndex < locationPreset.length - 1) locationIndex += 1;
-        else {
-          if (filters.odometerMax && filters.odometerMax + 15000 < 100000)
-            filters.odometerMax += 15000;
-          else filters.odometerMax = null;
 
-          if (filters.odometerMin && filters.odometerMin - 15000 > 5000)
-            filters.odometerMin -= 15000;
-          else filters.odometerMin = null;
+      candidates.sort((a, b) => a.weightedScore - b.weightedScore);
+      const nextCandidate = candidates[0];
 
-          if (filters.odometerMax === null && filters.odometerMin === null) {
-            break;
-          }
-          isSet = false;
-          continue;
-        }
+      console.log(
+        `${FILTER_LOG_PREFIX}[Weighted] Moving axis=${nextCandidate.axis} ` +
+          `count=${nextCandidate.evaluation.count} delta=${nextCandidate.delta}`,
+      );
+
+      if (
+        nextCandidate.delta > bestResult.delta &&
+        nextCandidate.evaluation.count > 0
+      ) {
+        console.log(
+          `${FILTER_LOG_PREFIX}[Weighted] Candidate delta not better. Stopping search.`,
+        );
+        break;
       }
-      if (isSet && previousCount >= 20 && count >= 20) {
-        if (locationIndex > 0) locationIndex -= 1;
-        else break;
+
+      if (nextCandidate.delta === 0) {
+        return {
+          filters: nextCandidate.evaluation.filters,
+          marketLookupData: nextCandidate.evaluation.marketLookupData,
+        };
       }
-      previousCount = count;
-      isSet = true;
-    } while (true);
-    return { filters, marketLookupData };
+
+      currentState = nextCandidate.state;
+      currentEvaluation = nextCandidate.evaluation;
+      currentDelta = nextCandidate.delta;
+      bestResult = nextCandidate;
+    }
+
+    console.log(
+      `${FILTER_LOG_PREFIX}[Weighted] Returning closest match (count=${bestResult.evaluation.count}, ` +
+        `delta=${bestResult.delta}).`,
+    );
+    return {
+      filters: bestResult.evaluation.filters,
+      marketLookupData: bestResult.evaluation.marketLookupData,
+    };
+  }
+
+  private cloneFilters(filters: any) {
+    return JSON.parse(JSON.stringify(filters ?? {}));
+  }
+
+  private normalizeNumber(value: any): number | null {
+    if (value === null || value === undefined) {
+      return null;
+    }
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  private normalizeOdometerMin(value: any): number | null {
+    const parsed = this.normalizeNumber(value);
+    if (parsed === null || parsed <= 0) {
+      return null;
+    }
+    return parsed;
+  }
+
+  private normalizeOdometerMax(value: any): number {
+    const parsed = this.normalizeNumber(value);
+    if (parsed === null || parsed <= 0) {
+      return DEFAULT_ODOMETER_MAX;
+    }
+    return parsed;
+  }
+
+  private serializeState(state: FilterSearchState): string {
+    const transmissionsKey = state.transmissions?.join(',') ?? 'none';
+    return [
+      state.radiusIdx,
+      state.odometerMin ?? 'null',
+      state.odometerMax ?? 'null',
+      state.isActive,
+      state.transmissionsMode,
+      transmissionsKey,
+    ].join('|');
+  }
+
+  private async evaluateState(
+    page: Page,
+    vehicleInfo: any,
+    baseFilters: any,
+    baseTransmissions: string[] | null,
+    state: FilterSearchState,
+  ) {
+    const filtersSnapshot = this.buildFiltersFromState(
+      baseFilters,
+      baseTransmissions,
+      state,
+    );
+    const marketLookupData = await sendAPIRequest(
+      page,
+      'https://app.dealercenter.net/api-gateway/inventory/MarketData/GetFilterLookupData',
+      'POST',
+      { Authorization: `Bearer ${accessToken}` },
+      {
+        filters: filtersSnapshot,
+        maxDigitalPriceLockType: 1,
+        vehicleInfo,
+      },
+    );
+    const count = Array.isArray(marketLookupData?.listings)
+      ? marketLookupData.listings.reduce(
+          (sum: number, item: any) => sum + item.count,
+          0,
+        )
+      : 0;
+    return { filters: filtersSnapshot, marketLookupData, count };
+  }
+
+  private async getEvaluation(
+    page: Page,
+    vehicleInfo: any,
+    baseFilters: any,
+    baseTransmissions: string[] | null,
+    state: FilterSearchState,
+    cache: Map<string, EvaluationResult>,
+  ): Promise<EvaluationResult> {
+    const key = this.serializeState(state);
+    const cached = cache.get(key);
+    if (cached) {
+      return cached;
+    }
+    const evaluation = await this.evaluateState(
+      page,
+      vehicleInfo,
+      baseFilters,
+      baseTransmissions,
+      state,
+    );
+    cache.set(key, evaluation);
+    return evaluation;
+  }
+
+  private buildFiltersFromState(
+    baseFilters: any,
+    baseTransmissions: string[] | null,
+    state: FilterSearchState,
+  ) {
+    const snapshot = this.cloneFilters(baseFilters);
+    snapshot.radiusInMiles = LOCATION_RADIUS_PRESET[state.radiusIdx];
+    snapshot.odometerMin = this.normalizeOdometerMin(
+      state.odometerMin ?? null,
+    );
+    snapshot.odometerMax = this.normalizeOdometerMax(
+      state.odometerMax ?? DEFAULT_ODOMETER_MAX,
+    );
+    snapshot.isActive = state.isActive;
+
+    if (
+      state.transmissionsMode === 'expanded' &&
+      state.transmissions &&
+      state.transmissions.length
+    ) {
+      snapshot.transmissions = [...state.transmissions];
+    } else if (baseTransmissions && baseTransmissions.length) {
+      snapshot.transmissions = [...baseTransmissions];
+    } else {
+      delete snapshot.transmissions;
+    }
+
+    return snapshot;
+  }
+
+  private cloneState(state: FilterSearchState): FilterSearchState {
+    return {
+      ...state,
+      transmissions: state.transmissions ? [...state.transmissions] : null,
+    };
+  }
+
+  private async buildAxisCandidates(
+    page: Page,
+    vehicleInfo: any,
+    baseFilters: any,
+    baseTransmissions: string[] | null,
+    state: FilterSearchState,
+    cache: Map<string, EvaluationResult>,
+  ): Promise<CandidateEvaluation[]> {
+    const candidates: CandidateEvaluation[] = [];
+    const nextDepth = state.depth + 1;
+
+    if (state.radiusIdx < LOCATION_RADIUS_PRESET.length - 1) {
+      const radiusState = this.cloneState(state);
+      radiusState.radiusIdx += 1;
+      radiusState.cost += RADIUS_WEIGHT;
+      radiusState.depth = nextDepth;
+      const evaluation = await this.getEvaluation(
+        page,
+        vehicleInfo,
+        baseFilters,
+        baseTransmissions,
+        radiusState,
+        cache,
+      );
+      const delta = this.getCountDelta(evaluation.count);
+      candidates.push({
+        state: radiusState,
+        evaluation,
+        axis: 'radius+',
+        delta,
+        weightedScore: delta * RADIUS_WEIGHT,
+      });
+    }
+
+    const expandedRange = this.expandOdometerRange(state);
+    if (expandedRange) {
+      const odometerState = this.cloneState(state);
+      odometerState.odometerMin = expandedRange.min;
+      odometerState.odometerMax = expandedRange.max;
+      odometerState.cost += MILEAGE_WEIGHT;
+      odometerState.depth = nextDepth;
+      const evaluation = await this.getEvaluation(
+        page,
+        vehicleInfo,
+        baseFilters,
+        baseTransmissions,
+        odometerState,
+        cache,
+      );
+      const delta = this.getCountDelta(evaluation.count);
+      candidates.push({
+        state: odometerState,
+        evaluation,
+        axis: 'odometer+',
+        delta,
+        weightedScore: delta * MILEAGE_WEIGHT,
+      });
+    }
+
+    return candidates;
+  }
+
+  private transmissionListIncludes(
+    list: string[] | null,
+    value: string,
+  ): boolean {
+    if (!list || !list.length) {
+      return false;
+    }
+    return list.includes(value);
+  }
+
+  private isBetterCandidate(
+    current: CandidateEvaluation,
+    best: CandidateEvaluation | null,
+  ): boolean {
+    if (!best) {
+      return true;
+    }
+    if (current.delta === best.delta) {
+      return current.state.cost < best.state.cost;
+    }
+    return current.delta < best.delta;
+  }
+
+  private logWeightedEvaluation(state: FilterSearchState, count: number) {
+    const displayMin = this.normalizeOdometerMin(state.odometerMin ?? null);
+    const displayMax = this.normalizeOdometerMax(
+      state.odometerMax ?? DEFAULT_ODOMETER_MAX,
+    );
+    const delta = this.getCountDelta(count);
+    console.log(
+      `${FILTER_LOG_PREFIX}[Weighted] Eval radius=${
+        LOCATION_RADIUS_PRESET[state.radiusIdx]
+      } ` +
+        `odometer=${displayMin ?? 'null'}-${displayMax} ` +
+        `isActive=${state.isActive} transmissions=${state.transmissionsMode} ` +
+        `cost=${state.cost.toFixed(2)} delta=${delta} count=${count}`,
+    );
+  }
+
+  private getNarrowOdometerRange(
+    vehicleInfo: any,
+    baseMin: any,
+    baseMax: any,
+  ): { min: number | null; max: number } {
+    const targetOdometer =
+      this.normalizeNumber(vehicleInfo?.odometer) ??
+      this.normalizeNumber(baseMin) ??
+      this.normalizeNumber(baseMax) ??
+      DEFAULT_ODOMETER_MAX / 2;
+
+    const baseMinValue = this.normalizeNumber(baseMin);
+    const baseMaxValue = this.normalizeNumber(baseMax);
+    const baseWidth =
+      baseMinValue !== null && baseMaxValue !== null
+        ? baseMaxValue - baseMinValue
+        : null;
+
+    let minCandidate =
+      baseWidth !== null && baseWidth <= MILEAGE_STEP * 2
+        ? baseMinValue
+        : Math.max(targetOdometer - MILEAGE_STEP, 0);
+    let maxCandidate =
+      baseWidth !== null && baseWidth <= MILEAGE_STEP * 2
+        ? baseMaxValue ?? targetOdometer + MILEAGE_STEP
+        : Math.min(targetOdometer + MILEAGE_STEP, DEFAULT_ODOMETER_MAX);
+
+    if (minCandidate !== null && maxCandidate !== null && maxCandidate <= minCandidate) {
+      maxCandidate = Math.min(minCandidate + MILEAGE_STEP * 2, DEFAULT_ODOMETER_MAX);
+    }
+
+    if (maxCandidate === null || maxCandidate <= 0) {
+      maxCandidate = DEFAULT_ODOMETER_MAX;
+    }
+
+    const normalizedMin = this.normalizeOdometerMin(minCandidate);
+    const normalizedMax = this.normalizeOdometerMax(maxCandidate);
+
+    return {
+      min: normalizedMin,
+      max: normalizedMax,
+    };
+  }
+
+  private getInitialOdometerRange(
+    vehicleInfo: any,
+  ): { min: number | null; max: number | null } | null {
+    const odometer = this.normalizeNumber(vehicleInfo?.odometer);
+    if (!odometer || odometer <= 0) {
+      return null;
+    }
+
+    const minCandidate =
+      odometer - MILEAGE_STEP <= 0 ? null : odometer - MILEAGE_STEP;
+    const maxCandidate =
+      odometer + MILEAGE_STEP >= MAX_ODOMETER_LIMIT
+        ? null
+        : odometer + MILEAGE_STEP;
+
+    return {
+      min: this.normalizeOdometerMin(minCandidate),
+      max:
+        maxCandidate === null
+          ? null
+          : this.normalizeOdometerMax(maxCandidate),
+    };
+  }
+
+  private expandOdometerRange(
+    state: FilterSearchState,
+  ): { min: number | null; max: number | null } | null {
+    const currentMin = this.normalizeOdometerMin(state.odometerMin ?? null);
+    const currentMax = this.normalizeOdometerMax(
+      state.odometerMax ?? DEFAULT_ODOMETER_MAX,
+    );
+
+    if (currentMin === null && currentMax >= DEFAULT_ODOMETER_MAX) {
+      return null;
+    }
+
+    const nextMin =
+      currentMin === null
+        ? null
+        : Math.max(currentMin - MILEAGE_STEP, 0);
+    const nextMax =
+      currentMax >= MAX_ODOMETER_LIMIT
+        ? null
+        : Math.min(currentMax + MILEAGE_STEP, MAX_ODOMETER_LIMIT);
+
+    if (nextMin === currentMin && nextMax === currentMax) {
+      return null;
+    }
+
+    if (
+      nextMin !== null &&
+      nextMax !== null &&
+      nextMin >= nextMax
+    ) {
+      return null;
+    }
+
+    return {
+      min: this.normalizeOdometerMin(nextMin),
+      max:
+        nextMax === null
+          ? null
+          : this.normalizeOdometerMax(nextMax),
+    };
+  }
+
+  private getCountDelta(count: number): number {
+    if (count >= TARGET_COMP_MIN && count <= TARGET_COMP_MAX) {
+      return 0;
+    }
+    if (count < TARGET_COMP_MIN) {
+      return TARGET_COMP_MIN - count;
+    }
+    return count - TARGET_COMP_MAX;
   }
   async completeVehicleBuild(page: Page, vehicle: IVehicle) {
     const answers: IAnswer[] = [];
@@ -1999,7 +2247,7 @@ export class DCEngine {
         },
       },
     );
-    console.log(data);
+    // console.log(data);
     const {
       id,
       companyId,

@@ -185,6 +185,14 @@ npm run test:stringSimilarity
 - `src/scripts/list-google-drive-files.ts` - List Drive folder contents
 - `src/scripts/manageBlockedVins.ts` - Manage blocked VINs
 - `src/scripts/test-google-drive-csv.ts` - Test CSV parsing
+- `src/scripts/test-adjust-filters.ts` - Debug auction filter tuning for a VIN (update the `TEST_VIN` placeholder inside the script or set the `TEST_VIN` environment variable before running)
+
+Example:
+
+```bash
+TEST_VIN=1G1FE1R70K0156326 TEST_FILTER_STRATEGY=weighted \
+  dotenv -e .env -- ts-node src/scripts/test-adjust-filters.ts
+```
 
 ## Documentation
 
