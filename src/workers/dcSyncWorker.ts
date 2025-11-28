@@ -17,8 +17,14 @@ async function main(): Promise<void> {
     concurrency: 1,
   });
 
-  worker.on('completed', job => {
+  worker.on('completed', (job, result) => {
     console.log(`✅ Job ${job.id} completed`);
+    if (result?.pricingSummary) {
+      console.log(
+        `📊 BullMQ return value for job ${job.id}:`,
+        result.pricingSummary,
+      );
+    }
   });
 
   worker.on('failed', (job, error) => {
