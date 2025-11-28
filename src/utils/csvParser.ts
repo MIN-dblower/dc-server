@@ -54,10 +54,14 @@ export function parseCSV(csv: string): EdgePipelineRecord[] {
     .map(row => {
       const col = parseCSVRow(row);
       
+      // Pad missing columns with empty strings (we need 17 columns total: 0-16)
       if (col.length < 17) {
-        console.warn(`Row has insufficient columns (${col.length}), skipping: ${row.substring(0, 100)}`);
-        return null;
+        const missingColumns = 17 - col.length;
+        for (let i = 0; i < missingColumns; i++) {
+          col.push(''); // Fill missing columns with empty strings
+        }
       }
+      // If col.length > 17, we'll just use the first 17 columns
 
       return {
         auctionName: col[0]?.trim() || '',

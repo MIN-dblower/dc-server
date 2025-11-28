@@ -5,4 +5,5 @@ export interface IVehicle {
   year: number;
   odometer: number;
   trim: string;
+  transmission: string; // Empty string means transmission should be selected randomly
 }

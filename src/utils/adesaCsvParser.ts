@@ -19,10 +19,20 @@ export function parseAdesaCSV(csv: string): AdesaRecord[] {
       // Handle CSV parsing with proper quote handling
       const col = parseCSVRow(row);
       
-      if (col.length < 22) {
+      // If we have exactly 21 columns, notes might be empty - pad with empty strings
+      if (col.length === 21) {
+        col.push(''); // Add empty notes
+        col.push(''); // Add empty announcements
+        col.push(''); // Add empty titleStatus
+      } else if (col.length === 22) {
+        // Missing titleStatus, pad it
+        col.push(''); // Add empty titleStatus
+      } else if (col.length < 21) {
+        // Truly insufficient columns (missing required fields)
         console.warn(`Row has insufficient columns (${col.length}), skipping: ${row.substring(0, 100)}`);
         return null;
       }
+      // If col.length >= 23, we'll just use the first 23 columns (0-22)
 
       return {
         laneRun: col[0]?.trim() || '',
