@@ -25,7 +25,8 @@
       "@components/*": ["components/*"], // Alias for 'src/components'
       "@interfaces/*": ["interfaces/*"]
     },
-    "lib": ["ESNext", "DOM"]
+    "lib": ["ESNext", "DOM"],
+    "types": ["jest", "node"]
   },
   "include": ["src"],
   "exclude": ["node_modules"]
