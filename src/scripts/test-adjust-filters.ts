@@ -31,8 +31,12 @@ async function buildMarketFilterForUnregisteredVin(
     model: TEST_MODEL,
     year: TEST_YEAR,
     trim: TEST_TRIM,
+    transmission: '',
   };
-  const { vehicleBuilds } = await dcEngine.completeVehicleBuild(page, vehicleForBuild);
+  const { vehicleBuilds } = await dcEngine.completeVehicleBuild(
+    page,
+    vehicleForBuild,
+  );
 
   if (!Array.isArray(vehicleBuilds) || vehicleBuilds.length === 0) {
     throw new Error('Unable to build vehicle definition from VIN.');
@@ -143,7 +147,9 @@ async function buildMarketFilterForUnregisteredVin(
     stockNumber: '',
     year: vehicleMeta.year,
     make: vehicleMeta.make,
-    model: filters.modelAggregate.length ? filters.modelAggregate[0] : vehicleMeta.model,
+    model: filters.modelAggregate.length
+      ? filters.modelAggregate[0]
+      : vehicleMeta.model,
     trim: filters.trims.length ? filters.trims[0] : vehicleMeta.trim,
     odometer,
     body: vehicleMeta.body,
@@ -187,7 +193,9 @@ async function main(): Promise<void> {
   try {
     const token = await dcEngine.getToken(page);
     if (!token) {
-      throw new Error('Failed to retrieve DealerCenter token. Ensure refresh token is valid.');
+      throw new Error(
+        'Failed to retrieve DealerCenter token. Ensure refresh token is valid.',
+      );
     }
 
     let inventoryId: string | null | undefined = TEST_INVENTORY_ID ?? undefined;
@@ -225,9 +233,8 @@ async function main(): Promise<void> {
 
     console.log(
       `[AdjustFiltersTest] Initial radius=${marketFilter.filters.radiusInMiles}, ` +
-        `odometer=${marketFilter.filters.odometerMin ?? 'null'}-${
-          marketFilter.filters.odometerMax ?? 'null'
-        }`,
+        `odometer=${marketFilter.filters.odometerMin ?? 'null'}-${marketFilter
+          .filters.odometerMax ?? 'null'}`,
     );
 
     const { filters, marketLookupData } = await dcEngine.adjustFilters(
@@ -236,20 +243,19 @@ async function main(): Promise<void> {
       marketFilter.vehicleInfo,
     );
 
-    const listingCount = Array.isArray(marketLookupData?.listings)
-      ? marketLookupData.listings.reduce((sum: number, item: any) => sum + item.count, 0)
-      : 0;
+    const listingCount = marketLookupData.marketDaysSupplyResponse.matching;
 
     console.log(
       '[AdjustFiltersTest] ✅ Completed.\n' +
         `  Strategy: weighted\n` +
         `  Final radius: ${filters.radiusInMiles}\n` +
-        `  Final odometer range: ${filters.odometerMin ?? 'null'} - ${
-          filters.odometerMax ?? 'null'
-        }\n` +
+        `  Final odometer range: ${filters.odometerMin ??
+          'null'} - ${filters.odometerMax ?? 'null'}\n` +
         `  isActive: ${filters.isActive ?? 0}\n` +
         `  Transmissions: ${
-          Array.isArray(filters.transmissions) ? filters.transmissions.join(', ') : 'n/a'
+          Array.isArray(filters.transmissions)
+            ? filters.transmissions.join(', ')
+            : 'n/a'
         }\n` +
         `  Total comps: ${listingCount}`,
     );
@@ -262,4 +268,3 @@ async function main(): Promise<void> {
 }
 
 void main();
-
