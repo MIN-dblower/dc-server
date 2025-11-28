@@ -3,14 +3,19 @@ import { AdesaRecord } from '../interfaces/adesa.types';
 import { EdgePipelineRecord } from '../interfaces/edgePipeline.types';
 import { saveOrUpdateAdesaRecord } from '../storage/adesaDb';
 import { saveOrUpdateRecord } from '../storage/db';
-import { updateDCForAuctionRecord } from './dcUpdateInterface';
+import {
+  updateDCForAuctionRecord,
+  DCUpdateResult,
+} from './dcUpdateInterface';
 import { DCUpdateJobData } from '../types/job.types';
 
 function isAdesaRecord(record: AdesaRecord | EdgePipelineRecord): record is AdesaRecord {
   return (record as AdesaRecord).laneRun !== undefined;
 }
 
-export async function processDCUpdateJob(job: Job<DCUpdateJobData>): Promise<void> {
+export async function processDCUpdateJob(
+  job: Job<DCUpdateJobData>,
+): Promise<DCUpdateResult> {
   const { record, isNewRecord } = job.data;
 
   console.log(`\n⚙️  Processing DC job ${job.id} for VIN ${record.vin}`);
@@ -29,6 +34,11 @@ export async function processDCUpdateJob(job: Job<DCUpdateJobData>): Promise<voi
     await saveOrUpdateRecord(record);
   }
 
+  if (dcResult.pricingSummary) {
+    console.log(`📊 Job ${job.id} pricing summary:`, dcResult.pricingSummary);
+  }
+
   console.log(`✅ DC job ${job.id} completed for VIN ${record.vin}`);
+  return dcResult;
 }
 

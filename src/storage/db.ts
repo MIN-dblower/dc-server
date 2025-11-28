@@ -1,6 +1,28 @@
 import prisma from '../lib/prisma';
 import { EdgePipelineRecord } from '../interfaces/edgePipeline.types';
 
+function mapEntryToEdgeRecord(entry: any): EdgePipelineRecord {
+  return {
+    auctionName: entry.auctionName,
+    pictureCount: entry.pictureCount,
+    runNumber: entry.runNumber,
+    stockNumber: entry.stockNumber,
+    year: entry.year,
+    make: entry.make,
+    model: entry.model,
+    style: entry.style,
+    color: entry.color,
+    odometer: entry.odometer,
+    cr: entry.cr,
+    grade: entry.grade,
+    saleDate: entry.saleDate,
+    lane: entry.lane,
+    vin: entry.vin,
+    soldAmount: entry.soldAmount,
+    watchNotes: entry.watchNotes,
+  };
+}
+
 /**
  * Loads the last known records from the database and returns them as a VIN-keyed map.
  */
@@ -9,27 +31,23 @@ export async function loadRecordMap(): Promise<Record<string, EdgePipelineRecord
   const entries = await delegate.findMany();
   const map: Record<string, EdgePipelineRecord> = {};
   entries.forEach((entry: any) => {
-    map[entry.vin] = {
-      auctionName: entry.auctionName,
-      pictureCount: entry.pictureCount,
-      runNumber: entry.runNumber,
-      stockNumber: entry.stockNumber,
-      year: entry.year,
-      make: entry.make,
-      model: entry.model,
-      style: entry.style,
-      color: entry.color,
-      odometer: entry.odometer,
-      cr: entry.cr,
-      grade: entry.grade,
-      saleDate: entry.saleDate,
-      lane: entry.lane,
-      vin: entry.vin,
-      soldAmount: entry.soldAmount,
-      watchNotes: entry.watchNotes,
-    };
+    map[entry.vin] = mapEntryToEdgeRecord(entry);
   });
   return map;
+}
+
+/**
+ * Loads a single EdgePipeline record by VIN or returns null when not found.
+ */
+export async function getEdgePipelineRecordByVin(
+  vin: string,
+): Promise<EdgePipelineRecord | null> {
+  const delegate = (prisma as any).edgePipelineRecord ?? prisma.edgePipelineRecord;
+  const entry = await delegate.findUnique({ where: { vin } });
+  if (!entry) {
+    return null;
+  }
+  return mapEntryToEdgeRecord(entry);
 }
 
 /**

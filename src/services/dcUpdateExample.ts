@@ -10,7 +10,11 @@
  * 3. If already appraised: Update logic (placeholder for now)
  */
 
-import { AuctionRecordUnion, DCUpdateResult } from './dcUpdateInterface';
+import {
+  AuctionRecordUnion,
+  DCUpdateResult,
+  PricingSummary,
+} from './dcUpdateInterface';
 import { DCEngine } from './dcengine';
 import { IVehicle } from '../interfaces/vehicle.types';
 import {
@@ -29,6 +33,9 @@ import { isVinBlocked, getBlockedVinDetails, blockVin } from './blockedVins';
 import { enqueueTelegramMessage } from './telegramQueue';
 import { UncoveredCaseError } from '../errors/uncoveredCaseError';
 import { NoCompFoundError } from '../errors/noCompFoundError';
+import { getEmailNotificationService } from './emailNotification';
+import { getAdesaRecordByVin } from '../storage/adesaDb';
+import { getEdgePipelineRecordByVin } from '../storage/db';
 
 /**
  * Determines if a record is an Adesa record
@@ -57,7 +64,97 @@ function recordToVehicle(record: AuctionRecordUnion): IVehicle {
     model: record.model,
     year: record.year,
     odometer: record.odometer,
-    trim: isAdesaRecord(record) ? record.trim || '' : '',
+    trim: isAdesaRecord(record) 
+      ? record.trim || '' 
+      : (record as EdgePipelineRecord).style || '',
+    transmission: isAdesaRecord(record) 
+      ? record.transmission || '' 
+      : '', // Edge Pipeline doesn't have transmission, empty string triggers random selection
+  };
+}
+
+interface PrimaryKeySnapshot {
+  odometer: number | null;
+  note: string;
+}
+
+interface PrimaryKeyChangeContext {
+  odometerChanged: boolean;
+  notesChanged: boolean;
+}
+
+async function getPreviousPrimaryKeySnapshot(
+  record: AuctionRecordUnion,
+): Promise<PrimaryKeySnapshot | null> {
+  if (isAdesaRecord(record)) {
+    const existing = await getAdesaRecordByVin(record.vin);
+    if (!existing) {
+      return null;
+    }
+    return {
+      odometer: existing.odometer ?? null,
+      note: existing.notes || '',
+    };
+  }
+
+  const existing = await getEdgePipelineRecordByVin(record.vin);
+  if (!existing) {
+    return null;
+  }
+
+  return {
+    odometer: existing.odometer ?? null,
+    note: existing.watchNotes || '',
+  };
+}
+
+async function determinePrimaryKeyChanges(
+  record: AuctionRecordUnion,
+  currentNote: string,
+): Promise<PrimaryKeyChangeContext> {
+  const snapshot = await getPreviousPrimaryKeySnapshot(record);
+  if (!snapshot) {
+    console.warn(
+      `Unable to load previous primary keys for VIN ${record.vin} - defaulting to full update`,
+    );
+    const defaultContext = {
+      odometerChanged: true,
+      notesChanged: true,
+    };
+    console.log(
+      `Primary key change context for VIN ${record.vin}:`,
+      defaultContext,
+    );
+    return defaultContext;
+  }
+
+  const context = {
+    odometerChanged: snapshot.odometer !== record.odometer,
+    notesChanged: snapshot.note !== (currentNote || ''),
+  };
+  console.log(`Primary key change context for VIN ${record.vin}:`, context);
+  return context;
+}
+
+function buildPricingSummary(params: {
+  marketAveragePrice: number;
+  askingPrice: number;
+  marginPrice: number;
+  reconCost: number;
+  appraisalValue: number;
+  buyerFee: number;
+  lotFee: number;
+  currentAppraisalValue: number;
+}): PricingSummary {
+  return {
+    marketAveragePrice: params.marketAveragePrice,
+    askingPrice: params.askingPrice,
+    marginPrice: params.marginPrice,
+    reconCost: params.reconCost,
+    appraisalValue: params.appraisalValue,
+    buyerFee: params.buyerFee,
+    lotFee: params.lotFee,
+    currentAppraisalValue: params.currentAppraisalValue,
   };
 }
 
@@ -72,179 +169,229 @@ async function performFullAppraisal(
   note: string,
   type: 'Adesa' | 'Edge Pipeline',
 ): Promise<DCUpdateResult> {
-  try {
-    const vehicle = recordToVehicle(record);
+  const vehicle = recordToVehicle(record);
 
-    // Check if inventory exists, register if not
-    let inventoryId = await dcEngine.getInventoryByVin(page, vehicle.vin);
-    if (!inventoryId) {
-      console.log(`Registering new inventory for VIN: ${vehicle.vin}`);
-      const registerResult = await dcEngine.registerInventory(page, vehicle);
-      if (!registerResult?.isCompleted) {
-        return {
-          success: false,
-          error: registerResult?.error || 'Failed to register inventory',
-        };
+  // Check if inventory exists, register if not
+  let inventoryId = await dcEngine.getInventoryByVin(page, vehicle.vin);
+  if (!inventoryId) {
+    console.log(`Registering new inventory for VIN: ${vehicle.vin}`);
+    const registerResult = await dcEngine.registerInventory(page, vehicle);
+    if (!registerResult?.isCompleted) {
+      return {
+        success: false,
+        error: registerResult?.error || 'Failed to register inventory',
+      };
+    }
+
+    // Handle transmission selection notification if present
+    if (registerResult.transmissionSelection) {
+      const { transmissionSelection } = registerResult;
+      console.log(
+        `⚠️  Transmission selected for Edge Pipeline vehicle VIN ${transmissionSelection.vin}: ${transmissionSelection.selectedTransmission.name}${transmissionSelection.inventoryId ? ` (Inventory ID: ${transmissionSelection.inventoryId})` : ''}`,
+      );
+
+      // Notify via Telegram
+      try {
+        await enqueueTelegramMessage({
+          type: 'uncovered_case',
+          vin: transmissionSelection.vin,
+          vehicleTrim: transmissionSelection.vehicleTrim,
+          details: {
+            message: 'Transmission randomly selected for vehicle without transmission info',
+            selectedTransmission: transmissionSelection.selectedTransmission,
+            availableOptions: transmissionSelection.availableOptions,
+            auctionType: type,
+            inventoryId: transmissionSelection.inventoryId,
+          },
+        });
+      } catch (telegramError) {
+        console.error('Failed to queue Telegram notification:', telegramError);
       }
-      inventoryId = await dcEngine.getInventoryByVin(page, vehicle.vin);
-      if (!inventoryId) {
-        return {
-          success: false,
-          error: 'Failed to get inventory ID after registration',
-        };
+
+      // Notify via Email
+      try {
+        const emailService = getEmailNotificationService();
+        await emailService.sendTransmissionSelectionNotification({
+          vin: transmissionSelection.vin,
+          selectedTransmission: transmissionSelection.selectedTransmission,
+          availableOptions: transmissionSelection.availableOptions,
+          auctionType: type,
+        });
+      } catch (emailError) {
+        console.error('Failed to send email notification:', emailError);
       }
     }
 
-    // Get market price filter
-    const {
-      filters,
-      vehicleInfo,
-      id,
-      companyId,
-    } = await dcEngine.getMarketPriceFilter(page, inventoryId);
-
-    // Get market price (will throw NoCompFoundError if no comps found)
-    const {
-      priceAvg: price,
-      minPrice,
-      maxPrice,
-      matching,
-      avgOdometer,
-      vehicleCount,
-    } = await dcEngine.getMarketPrice(page, filters, vehicleInfo, vehicle.vin);
-
-    // Calculate prices
-    const askingPrice = getJustBelowNearestThousand(price);
-    const marginPrice = getMarginPrice(askingPrice);
-
-    // Calculate recon cost
-    const base = getPriceByMileage(vehicle.odometer);
-    const itemCost = getSumOfNumbersInDollars(note);
-    const reconCost = base + itemCost + 110 + 125; // 110 for inspection, 125 for detail cleaning
-
-    const lotFee = 500;
-    const appraisalValue = askingPrice - reconCost - marginPrice - lotFee;
-    const buyerFee =
-      type === 'Adesa'
-        ? getAdesaFee(appraisalValue)
-        : getEdgePipelineFee(appraisalValue);
-    const additionalFee = buyerFee + lotFee;
-    const currentAppraisalValue = appraisalValue - buyerFee;
-
-    console.log(`Price Analysis for VIN: ${vehicle.vin}`);
-    console.log(`- Market Price: $${price}`);
-    console.log(`- Asking Price: $${askingPrice}`);
-    console.log(`- Margin Price: $${marginPrice}`);
-    console.log(`- Recon Cost: $${reconCost}`);
-    console.log(`- Appraisal Value: $${appraisalValue}`);
-    console.log(`- Buyer Fee: $${buyerFee}`);
-
-    // Get inventory details
-    const inventoryDetail = await dcEngine.getInventoryDetails(
-      page,
-      inventoryId,
-    );
-
-    // Update additional fees
-    const inventoryFees =
-      (inventoryDetail.inventoryAdditionalFees as Array<any>) || [];
-    inventoryFees.forEach(fee => {
-      if (fee.feeCategoryId === 1) {
-        // Buyer Fee
-        fee.feeAmount = buyerFee;
-      } else if (fee.feeCategoryId === 2) {
-        // Lot Fee
-        fee.feeAmount = lotFee;
-      }
-    });
-
-    // Prepare inventory update
-    const inventoryUpdate = {
-      ...inventoryDetail,
-      totalAdditionalFees: additionalFee,
-      lotFee: lotFee,
-      buyersFee: buyerFee,
-      totalCost: additionalFee,
-      reconCost: reconCost,
-      targetGrossProfit: marginPrice,
-      currentAppraisalValue,
-      inventoryAdditionalFees: inventoryFees,
-    };
-
-    // Save inventory details
-    await dcEngine.saveInventoryDetails(
-      page,
-      inventoryUpdate,
-      inventoryId,
-      companyId,
-      id,
-      filters,
-      vehicleInfo,
-    );
-
-    // Save note
-    await dcEngine.saveNote(page, inventoryId, note);
-
-    // Get market pricing ID
-    const marketPricingID = await dcEngine.getMarketPricingID(
-      page,
-      inventoryId,
-    );
-
-    // Get price ranking
-    const ranking = await dcEngine.getPriceRanking(
-      page,
-      filters,
-      vehicleInfo,
-      vehicleCount,
-    );
-    const rank = getRank(askingPrice, ranking);
-    const maxRank = ranking.length;
-
-    // Save market pricing detail
-    const marketPricingDetailUpdate = {
-      entityId: inventoryId,
-      entityTypeId: 3,
-      marketPricingID: id,
-      marketPriceFilterID: marketPricingID,
-      minPrice,
-      maxPrice,
-      avgPrice: price,
-      avgOdometer,
-      appraisedBy: '08ff48cb-f0c7-4bff-8b66-8d069128d879',
-      appraisedByName: 'Appraisal Manager - appraisalmanager',
-      marketDataProviderID: 1,
-      totalGrossProfit: marginPrice,
-      reconEstimate: 0,
-      rank,
-      maxRank,
-      marketPrice: askingPrice,
-      marketDaySupply: matching,
-      matchedVehicleCount: vehicleCount,
-      overallVehicleCount: vehicleCount,
-    };
-
-    await dcEngine.saveMarketPricingDetail(page, marketPricingDetailUpdate);
-
-    console.log(`✅ Full appraisal completed for VIN: ${vehicle.vin}`);
-
-    return {
-      success: true,
-      inventoryId,
-    };
-  } catch (error) {
-    console.error(
-      `Error performing full appraisal for VIN: ${record.vin}`,
-      error,
-    );
-    return {
-      success: false,
-      error:
-        error instanceof Error
-          ? error.message
-          : 'Unknown error during appraisal',
-    };
+    inventoryId = await dcEngine.getInventoryByVin(page, vehicle.vin);
+    if (!inventoryId) {
+      return {
+        success: false,
+        error: 'Failed to get inventory ID after registration',
+      };
+    }
   }
+
+  // Get market price filter
+  const {
+    filters,
+    vehicleInfo,
+    id,
+    companyId,
+  } = await dcEngine.getMarketPriceFilter(page, inventoryId);
+
+  vehicleInfo.odometer = vehicle.odometer;
+  const { filters: adjustedFilters } = await dcEngine.adjustFilters(
+    page,
+    filters,
+    vehicleInfo,
+  );
+  const effectiveFilters = adjustedFilters || filters;
+
+  // Get market price (will throw NoCompFoundError if no comps found)
+  const {
+    priceAvg: price,
+    minPrice,
+    maxPrice,
+    matching,
+    avgOdometer,
+    vehicleCount,
+  } = await dcEngine.getMarketPrice(
+    page,
+    effectiveFilters,
+    vehicleInfo,
+    vehicle.vin,
+  );
+
+  // Calculate prices
+  const askingPrice = getJustBelowNearestThousand(price);
+  const marginPrice = getMarginPrice(askingPrice);
+
+  // Calculate recon cost
+  const base = getPriceByMileage(vehicle.odometer);
+  const itemCost = getSumOfNumbersInDollars(note);
+  const reconCost = base + itemCost + 110 + 125; // 110 for inspection, 125 for detail cleaning
+
+  const lotFee = 500;
+  const appraisalValue = askingPrice - reconCost - marginPrice - lotFee;
+  const buyerFee =
+    type === 'Adesa'
+      ? getAdesaFee(appraisalValue)
+      : getEdgePipelineFee(appraisalValue);
+  const additionalFee = buyerFee + lotFee;
+  const currentAppraisalValue = appraisalValue - buyerFee;
+
+  console.log(`Price Analysis for VIN: ${vehicle.vin}`);
+  console.log(`- Market Price: $${price}`);
+  console.log(`- Asking Price: $${askingPrice}`);
+  console.log(`- Margin Price: $${marginPrice}`);
+  console.log(`- Recon Cost: $${reconCost}`);
+  console.log(`- Appraisal Value: $${appraisalValue}`);
+  console.log(`- Buyer Fee: $${buyerFee}`);
+
+  const pricingSummary = buildPricingSummary({
+    marketAveragePrice: price,
+    askingPrice,
+    marginPrice,
+    reconCost,
+    appraisalValue,
+    buyerFee,
+    lotFee,
+    currentAppraisalValue,
+  });
+
+  // Get inventory details
+  const inventoryDetail = await dcEngine.getInventoryDetails(page, inventoryId);
+
+  // Update additional fees
+  const inventoryFees =
+    (inventoryDetail.inventoryAdditionalFees as Array<any>) || [];
+  inventoryFees.forEach(fee => {
+    if (fee.feeCategoryId === 1) {
+      // Buyer Fee
+      fee.feeAmount = buyerFee;
+    } else if (fee.feeCategoryId === 2) {
+      // Lot Fee
+      fee.feeAmount = lotFee;
+    }
+  });
+
+  // Prepare inventory update
+  const inventoryUpdate = {
+    ...inventoryDetail,
+    totalAdditionalFees: additionalFee,
+    lotFee: lotFee,
+    buyersFee: buyerFee,
+    totalCost: additionalFee,
+    reconCost: reconCost,
+    targetGrossProfit: marginPrice,
+    currentAppraisalValue,
+    inventoryAdditionalFees: inventoryFees,
+  };
+
+  // Save inventory details
+  await dcEngine.saveInventoryDetails(
+    page,
+    inventoryUpdate,
+    inventoryId,
+    companyId,
+    id,
+    effectiveFilters,
+    vehicleInfo,
+  );
+
+  // Save note
+  console.log(
+    `📝 Saving initial note for inventory ${inventoryId} (VIN ${vehicle.vin})`,
+  );
+  await dcEngine.saveNote(page, inventoryId, note);
+  console.log(`📝 Note saved for inventory ${inventoryId}`);
+
+  // Get market pricing ID
+  const marketPricingID = await dcEngine.getMarketPricingID(page, inventoryId);
+
+  // Get price ranking
+  const ranking = await dcEngine.getPriceRanking(
+    page,
+    effectiveFilters,
+    vehicleInfo,
+    vehicleCount,
+  );
+  const rank = getRank(askingPrice, ranking);
+  const maxRank = ranking.length;
+
+  // Save market pricing detail
+  const marketPricingDetailUpdate = {
+    entityId: inventoryId,
+    entityTypeId: 3,
+    marketPricingID: id,
+    marketPriceFilterID: marketPricingID,
+    minPrice,
+    maxPrice,
+    avgPrice: price,
+    avgOdometer,
+    appraisedBy: '08ff48cb-f0c7-4bff-8b66-8d069128d879',
+    appraisedByName: 'Appraisal Manager - appraisalmanager',
+    marketDataProviderID: 1,
+    totalGrossProfit: marginPrice,
+    reconEstimate: 0,
+    rank,
+    maxRank,
+    marketPrice: askingPrice,
+    marketDaySupply: matching,
+    matchedVehicleCount: vehicleCount,
+    overallVehicleCount: vehicleCount,
+  };
+
+  await dcEngine.saveMarketPricingDetail(page, marketPricingDetailUpdate);
+
+  console.log(`✅ Full appraisal completed for VIN: ${vehicle.vin}`);
+  console.log('📊 Pricing summary:', pricingSummary);
+
+  return {
+    success: true,
+    inventoryId,
+    pricingSummary,
+  };
 }
 
 /**
@@ -258,188 +405,236 @@ async function updateExistingAppraisal(
   note: string,
   inventoryId: string,
   type: 'Adesa' | 'Edge Pipeline',
+  changeContext: PrimaryKeyChangeContext,
 ): Promise<DCUpdateResult> {
-  try {
-    console.log(
-      `Updating existing appraisal for VIN: ${record.vin}, Inventory ID: ${inventoryId}`,
-    );
-    console.log(
-      `Primary keys changed - Odometer: ${
-        record.odometer
-      }, Notes: ${note.substring(0, 50)}...`,
-    );
+  const { odometerChanged, notesChanged } = changeContext;
+  const updateMode = odometerChanged
+    ? notesChanged
+      ? 'odometer_and_notes'
+      : 'odometer_only'
+    : notesChanged
+    ? 'notes_only'
+    : 'no_primary_change';
 
-    // TODO: User will provide the flow manually, then complete this section
-    //
-    // Steps to implement:
-    // 1. Get current inventory details
-    // 2. Get valuation
-    // 3. Get market price filter with updated vehicleInfo (odometer)
-    // 4. Adjust filters based on new odometer
-    // 5. Recalculate prices if needed
-    // 6. Update inventory with new odometer and notes
-    // 7. Save updated appraisal data
-    //
-    // Placeholder implementation:
-    const inventoryDetail = await dcEngine.getInventoryDetails(
-      page,
-      inventoryId!,
+  console.log(
+    `Updating existing appraisal for VIN: ${record.vin}, Inventory ID: ${inventoryId}`,
+  );
+  console.log(
+    `Update mode: ${updateMode} (odometerChanged=${odometerChanged}, notesChanged=${notesChanged})`,
+  );
+
+  const inventoryDetail = await dcEngine.getInventoryDetails(page, inventoryId);
+  if (!inventoryDetail) {
+    throw new Error(`Inventory ${inventoryId} not found in DealerCenter`);
+  }
+
+  if (!inventoryDetail.vehicleBuilds || !inventoryDetail.vehicleBuilds.length) {
+    throw new Error(
+      `Missing vehicle build data for inventory ${inventoryId}. Manual intervention required.`,
     );
+  }
+
+  const marketPriceFilter = await dcEngine.getMarketPriceFilter(
+    page,
+    inventoryId,
+  );
+  const { filters, vehicleInfo, id, companyId } = marketPriceFilter;
+  const updatedVehicleInfo = { ...vehicleInfo };
+
+  let activeFilters = filters;
+  let valuation: any | null = null;
+
+  if (odometerChanged) {
+    updatedVehicleInfo.odometer = record.odometer;
+    const { filters: adjustedFilters } = await dcEngine.adjustFilters(
+      page,
+      filters,
+      updatedVehicleInfo,
+    );
+    activeFilters = adjustedFilters || filters;
+
     const kbbBuild = inventoryDetail.vehicleBuilds.find(
       (el: any) => el.bookServiceTypeId === 1,
     );
-    const vehicleBuilds = inventoryDetail.vehicleBuilds;
+    if (!kbbBuild) {
+      throw new Error(
+        `Unable to locate Kelley build while rebooking inventory ${inventoryId}`,
+      );
+    }
     const vehicleMeta = {
       year: kbbBuild.year,
       make: kbbBuild.make,
       model: kbbBuild.model,
       trim: kbbBuild.trim,
     };
-    const valuation = await dcEngine.getInventoryValuation(
+
+    valuation = await dcEngine.getInventoryValuation(
       page,
       record.vin,
       record.odometer,
       vehicleMeta,
-      vehicleBuilds,
+      inventoryDetail.vehicleBuilds,
     );
-    const marketPriceFilter = await dcEngine.getMarketPriceFilter(
-      page,
-      inventoryId,
-    );
-    const { filters, vehicleInfo, id, companyId } = marketPriceFilter;
-    vehicleInfo.odometer = record.odometer;
-
-    const {
-      filters: adjustedFilters,
-      marketLookupData,
-    } = await dcEngine.adjustFilters(page, filters, vehicleInfo);
-    // Get market price (will throw NoCompFoundError if no comps found)
-    const {
-      priceAvg: price,
-      minPrice,
-      maxPrice,
-      matching,
-      avgOdometer,
-      vehicleCount,
-    } = await dcEngine.getMarketPrice(
-      page,
-      adjustedFilters,
-      vehicleInfo,
-      record.vin,
-    );
-
-    const askingPrice = getJustBelowNearestThousand(price);
-    const marginPrice = getMarginPrice(askingPrice);
-    const itemCost = getSumOfNumbersInDollars(note);
-    const reconCost = getPriceByMileage(record.odometer) + itemCost + 110 + 125;
-    const lotFee = 500;
-    const appraisalValue = askingPrice - reconCost - marginPrice - lotFee;
-    const buyerFee = getAdesaFee(appraisalValue);
-
-    const additionalFee = buyerFee + lotFee;
-    const currentAppraisalValue = appraisalValue - buyerFee;
-
-    console.log(`Price Analysis for VIN: ${record.vin}`);
-    console.log(`- Market Price: $${price}`);
-    console.log(`- Asking Price: $${askingPrice}`);
-    console.log(`- Margin Price: $${marginPrice}`);
-    console.log(`- Recon Cost: $${reconCost}`);
-    console.log(`- Appraisal Value: $${appraisalValue}`);
-    console.log(`- Buyer Fee: $${buyerFee}`);
-    // Update note
-    await dcEngine.saveNote(page, inventoryId, note);
-
-    // TODO: Add logic to update odometer and recalculate appraisal
-    // TODO: Update market pricing if odometer change affects pricing
-    const ranking = await dcEngine.getPriceRanking(
-      page,
-      adjustedFilters,
-      vehicleInfo,
-      vehicleCount,
-    );
-
-    const rank = getRank(askingPrice, ranking);
-    const maxRank = ranking.length;
-    const marketPricingID = await dcEngine.getMarketPricingID(
-      page,
-      inventoryId!,
-    );
-    const marketPricingDetailUpdate = {
-      entityId: inventoryId!,
-      entityTypeId: 3,
-      marketPricingID: id,
-      marketPriceFilterID: marketPricingID,
-      avgOdometer,
-      avgPrice: price,
-      minPrice,
-      maxPrice,
-      marketPrice: askingPrice,
-      marketDaySupply: matching,
-      matchedVehicleCount: vehicleCount,
-      overallVehicleCount: vehicleCount,
-      rank,
-      maxRank,
-      totalGrossProfit: marginPrice,
-      reconEstimate: 0,
-      appraisedBy: '08ff48cb-f0c7-4bff-8b66-8d069128d879',
-      appraisedByName: 'Appraisal Manager - appraisalmanager',
-      marketDataProviderID: 1,
-    };
-    const inventoryFees = inventoryDetail.inventoryAdditionalFees as Array<any>;
-    inventoryFees.forEach(fee => {
-      if (fee.feeCategoryId === 1) {
-        fee.feeAmount = buyerFee;
-      } else if (fee.feeCategoryId === 2) {
-        fee.feeAmount = lotFee;
-      }
-    });
-    const inventoryUpdate = {
-      ...inventoryDetail,
-      vehicleBuilds: [
-        valuation.kelleyBuild,
-        valuation.nadaBuild,
-        valuation.blackBookBuild,
-        valuation.manheimBuild,
-      ],
-      totalAdditionalFees: additionalFee,
-      lotFee: lotFee,
-      buyersFee: buyerFee,
-      totalCost: additionalFee,
-      odometer: record.odometer,
-      reconCost: reconCost,
-      targetGrossProfit: marginPrice,
-      currentAppraisalValue,
-      inventoryAdditionalFees: inventoryFees,
-    };
-    await dcEngine.saveMarketPricingDetail(page, marketPricingDetailUpdate);
-    await dcEngine.saveInventoryDetails(
-      page,
-      inventoryUpdate,
-      inventoryId,
-      companyId,
-      id,
-      adjustedFilters,
-      vehicleInfo,
-    );
-    console.log(
-      `⚠️  Placeholder update completed for VIN: ${record.vin} - Full update logic pending`,
-    );
-
-    return {
-      success: true,
-      inventoryId,
-    };
-  } catch (error) {
-    console.error(
-      `Error updating existing appraisal for VIN: ${record.vin}`,
-      error,
-    );
-    return {
-      success: false,
-      error:
-        error instanceof Error ? error.message : 'Unknown error during update',
-    };
   }
+
+  const {
+    priceAvg: price,
+    minPrice,
+    maxPrice,
+    matching,
+    avgOdometer,
+    vehicleCount,
+  } = await dcEngine.getMarketPrice(
+    page,
+    activeFilters,
+    updatedVehicleInfo,
+    record.vin,
+  );
+
+  const askingPrice = getJustBelowNearestThousand(price);
+  const marginPrice = getMarginPrice(askingPrice);
+
+  const odometerForRecon = odometerChanged
+    ? record.odometer
+    : inventoryDetail.odometer ?? record.odometer;
+  const itemCost = getSumOfNumbersInDollars(note);
+  const reconCost = getPriceByMileage(odometerForRecon) + itemCost + 110 + 125;
+  const lotFee = 500;
+  const appraisalValue = askingPrice - reconCost - marginPrice - lotFee;
+  const buyerFee =
+    type === 'Adesa'
+      ? getAdesaFee(appraisalValue)
+      : getEdgePipelineFee(appraisalValue);
+
+  const additionalFee = buyerFee + lotFee;
+  const currentAppraisalValue = appraisalValue - buyerFee;
+
+  console.log(`Price Analysis for VIN: ${record.vin}`);
+  console.log(`- Market Price: $${price}`);
+  console.log(`- Asking Price: $${askingPrice}`);
+  console.log(`- Margin Price: $${marginPrice}`);
+  console.log(`- Recon Cost: $${reconCost}`);
+  console.log(`- Appraisal Value: $${appraisalValue}`);
+  console.log(`- Buyer Fee: $${buyerFee}`);
+
+  const pricingSummary = buildPricingSummary({
+    marketAveragePrice: price,
+    askingPrice,
+    marginPrice,
+    reconCost,
+    appraisalValue,
+    buyerFee,
+    lotFee,
+    currentAppraisalValue,
+  });
+
+  const inventoryFees =
+    (inventoryDetail.inventoryAdditionalFees as Array<any>) || [];
+  inventoryFees.forEach(fee => {
+    if (fee.feeCategoryId === 1) {
+      fee.feeAmount = buyerFee;
+    } else if (fee.feeCategoryId === 2) {
+      fee.feeAmount = lotFee;
+    }
+  });
+
+  const vehicleBuildsToPersist = odometerChanged
+    ? [
+        valuation?.kelleyBuild,
+        valuation?.nadaBuild,
+        valuation?.blackBookBuild,
+        valuation?.manheimBuild,
+      ].filter(Boolean)
+    : inventoryDetail.vehicleBuilds;
+
+  if (
+    odometerChanged &&
+    (!vehicleBuildsToPersist || vehicleBuildsToPersist.length === 0)
+  ) {
+    throw new Error(
+      `Valuation data missing after rebooking VIN ${record.vin}.`,
+    );
+  }
+
+  const inventoryUpdate = {
+    ...inventoryDetail,
+    vehicleBuilds: vehicleBuildsToPersist,
+    totalAdditionalFees: additionalFee,
+    lotFee,
+    buyersFee: buyerFee,
+    totalCost: additionalFee,
+    odometer: record.odometer,
+    reconCost,
+    targetGrossProfit: marginPrice,
+    currentAppraisalValue,
+    inventoryAdditionalFees: inventoryFees,
+  };
+
+  const ranking = await dcEngine.getPriceRanking(
+    page,
+    activeFilters,
+    updatedVehicleInfo,
+    vehicleCount,
+  );
+
+  const rank = getRank(askingPrice, ranking);
+  const maxRank = ranking.length;
+  const marketPricingID = await dcEngine.getMarketPricingID(page, inventoryId);
+  const marketPricingDetailUpdate = {
+    entityId: inventoryId,
+    entityTypeId: 3,
+    marketPricingID: id,
+    marketPriceFilterID: marketPricingID,
+    minPrice,
+    maxPrice,
+    avgPrice: price,
+    avgOdometer,
+    appraisedBy: '08ff48cb-f0c7-4bff-8b66-8d069128d879',
+    appraisedByName: 'Appraisal Manager - appraisalmanager',
+    marketDataProviderID: 1,
+    totalGrossProfit: marginPrice,
+    reconEstimate: 0,
+    rank,
+    maxRank,
+    marketPrice: askingPrice,
+    marketDaySupply: matching,
+    matchedVehicleCount: vehicleCount,
+    overallVehicleCount: vehicleCount,
+  };
+
+  await dcEngine.saveMarketPricingDetail(page, marketPricingDetailUpdate);
+  await dcEngine.saveInventoryDetails(
+    page,
+    inventoryUpdate,
+    inventoryId,
+    companyId,
+    id,
+    activeFilters,
+    updatedVehicleInfo,
+  );
+
+  if (notesChanged) {
+    console.log(
+      `📝 Notes changed for VIN ${record.vin} (inventory ${inventoryId}) - saving updated note`,
+    );
+    await dcEngine.saveNote(page, inventoryId, note);
+    console.log(`📝 Note updated for inventory ${inventoryId}`);
+  } else {
+    console.log(
+      `📝 Notes unchanged for VIN ${record.vin} - skipping note save`,
+    );
+  }
+
+  console.log(
+    `✅ Update completed for VIN: ${record.vin} using mode ${updateMode}`,
+  );
+  console.log('📊 Pricing summary:', pricingSummary);
+
+  return {
+    success: true,
+    inventoryId,
+    pricingSummary,
+  };
 }
 
 /**
@@ -572,6 +767,7 @@ export async function updateDCForAuctionRecord(
       console.log(
         `✏️  Existing inventory found (ID: ${inventoryId}) - updating appraisal for VIN: ${record.vin}`,
       );
+      const changeContext = await determinePrimaryKeyChanges(record, note);
       return await updateExistingAppraisal(
         dcEngine,
         page,
@@ -579,6 +775,7 @@ export async function updateDCForAuctionRecord(
         note,
         inventoryId,
         recordType,
+        changeContext,
       );
     }
   } catch (error) {
@@ -610,6 +807,17 @@ export async function updateDCForAuctionRecord(
 
     // If it's a NoCompFoundError, block the VIN and queue Telegram alert
     if (error instanceof NoCompFoundError) {
+      // Try to get inventoryId if not already in error and inventory exists
+      let inventoryId = error.inventoryId;
+      if (!inventoryId && dcEngine && page) {
+        try {
+          const fetchedInventoryId = await dcEngine.getInventoryByVin(page, record.vin);
+          inventoryId = fetchedInventoryId || undefined;
+        } catch (e) {
+          // Ignore errors when trying to get inventoryId
+        }
+      }
+
       // Block the VIN
       await blockVin(
         record.vin,
@@ -622,7 +830,10 @@ export async function updateDCForAuctionRecord(
       await enqueueTelegramMessage({
         type: 'system_health',
         component: 'DC Market Price',
-        status: `No comps found for VIN: ${record.vin}. Vehicle count: ${error.vehicleCount}`,
+        status: `No comps found for VIN: ${record.vin}. Vehicle count: ${error.vehicleCount}${inventoryId ? `. Inventory ID: ${inventoryId}` : ''}`,
+        details: {
+          inventoryId,
+        },
       });
 
       return {

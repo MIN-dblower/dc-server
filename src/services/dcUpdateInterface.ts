@@ -9,10 +9,22 @@ import { updateDCForAuctionRecord } from './dcUpdateExample';
  * The actual DC update implementation is in dcUpdateExample.ts
  */
 
+export interface PricingSummary {
+  marketAveragePrice: number;
+  askingPrice: number;
+  marginPrice: number;
+  reconCost: number;
+  appraisalValue: number;
+  buyerFee: number;
+  lotFee: number;
+  currentAppraisalValue: number;
+}
+
 export interface DCUpdateResult {
   success: boolean;
   inventoryId?: string;
   error?: string;
+  pricingSummary?: PricingSummary;
 }
 
 /**
