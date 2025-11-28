@@ -13,8 +13,27 @@ import { NoCompFoundError } from '../errors/noCompFoundError';
 
 const FILTER_LOG_PREFIX = '[MarketFilters]';
 const LOCATION_RADIUS_PRESET = [
-  5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100,
-  200, 300, 400, 500, 600, 700, 800, 900, 1000, 5000,
+  5,
+  10,
+  20,
+  30,
+  40,
+  50,
+  60,
+  70,
+  80,
+  90,
+  100,
+  200,
+  300,
+  400,
+  500,
+  600,
+  700,
+  800,
+  900,
+  1000,
+  5000,
 ];
 const TARGET_COMP_MIN = 10;
 const TARGET_COMP_MAX = 13;
@@ -657,14 +676,17 @@ export class DCEngine {
         }
       });
     const {
-      question,
+      questions,
       vehicleBuilds,
       cityMpg,
       vehicleWeight,
       highwayMpg,
       grossVehicleWeight,
     } = await this.getBuild(page, vin, accessToken!, answers);
-    if (question) return { isCompleted: false, question };
+    if (questions.length > 0) {
+      // Return the first question for backward compatibility
+      return { isCompleted: false, question: questions[0] };
+    }
     if (vehicleBuilds.length === 0)
       return { isCompleted: false, error: 'Not Valid Vin' };
 
@@ -1123,7 +1145,17 @@ export class DCEngine {
   async registerInventory(
     page: Page,
     vehicle: IVehicle,
-  ): Promise<{ isCompleted: boolean; error: string | null }> {
+  ): Promise<{
+    isCompleted: boolean;
+    error: string | null;
+    transmissionSelection?: {
+      vin: string;
+      selectedTransmission: { id: string; name: string };
+      availableOptions: Array<{ id: string; name: string }>;
+      vehicleTrim?: string;
+      inventoryId?: string;
+    };
+  }> {
     const { vin, odometer } = vehicle;
     const {
       vehicleBuilds,
@@ -1131,9 +1163,14 @@ export class DCEngine {
       vehicleWeight,
       highwayMpg,
       grossVehicleWeight,
+      transmissionSelection,
     } = await this.completeVehicleBuild(page, vehicle);
     if (vehicleBuilds.length === 0)
-      return { isCompleted: false, error: 'Not Valid Vin' };
+      return {
+        isCompleted: false,
+        error: 'Not Valid Vin',
+        transmissionSelection,
+      };
 
     const draftData = await sendAPIRequest(
       page,
@@ -1395,7 +1432,9 @@ export class DCEngine {
       model: initialFilters.modelAggregate.length
         ? initialFilters.modelAggregate[0]
         : vehicleMeta.model,
-      trim: initialFilters.trims.length ? initialFilters.trims[0] : vehicleMeta.trim,
+      trim: initialFilters.trims.length
+        ? initialFilters.trims[0]
+        : vehicleMeta.trim,
       odometer,
       body: vehicleMeta.body,
       color: null,
@@ -1417,8 +1456,10 @@ export class DCEngine {
       equipmentIds: vehicleMeta.equipmentIds,
     };
 
-    const { filters: adjustedFilters, marketLookupData } =
-      await this.adjustFilters(page, initialFilters, vehicleInfo);
+    const {
+      filters: adjustedFilters,
+      marketLookupData,
+    } = await this.adjustFilters(page, initialFilters, vehicleInfo);
     const marketLookupStats = await sendAPIRequest(
       page,
       'https://app.dealercenter.net/api-gateway/inventory/MarketData/GetMarketPriceStatistics?mathching=0',
@@ -1534,13 +1575,23 @@ export class DCEngine {
       },
     );
 
-    return { isCompleted: true, error: null };
+    // Add inventoryId to transmissionSelection if present
+    const transmissionSelectionWithInventoryId = transmissionSelection
+      ? { ...transmissionSelection, inventoryId: entityID }
+      : undefined;
+
+    return {
+      isCompleted: true,
+      error: null,
+      transmissionSelection: transmissionSelectionWithInventoryId,
+    };
     // console.log(saveMarketPricingDetail);
   }
   async adjustFilters(page: Page, filters: any, vehicleInfo: any) {
     console.log(
       `${FILTER_LOG_PREFIX} Using weighted strategy, radius=${filters.radiusInMiles}, ` +
-        `odometerRange=${filters.odometerMin ?? 'null'}-${filters.odometerMax ?? 'null'}, ` +
+        `odometerRange=${filters.odometerMin ?? 'null'}-${filters.odometerMax ??
+          'null'}, ` +
         `isActive=${filters.isActive ?? 0}`,
     );
     return this.adjustFiltersWeighted(page, filters, vehicleInfo);
@@ -1760,12 +1811,7 @@ export class DCEngine {
         vehicleInfo,
       },
     );
-    const count = Array.isArray(marketLookupData?.listings)
-      ? marketLookupData.listings.reduce(
-          (sum: number, item: any) => sum + item.count,
-          0,
-        )
-      : 0;
+    const count = marketLookupData.marketDaysSupplyResponse.matching;
     return { filters: filtersSnapshot, marketLookupData, count };
   }
 
@@ -1800,9 +1846,7 @@ export class DCEngine {
   ) {
     const snapshot = this.cloneFilters(baseFilters);
     snapshot.radiusInMiles = LOCATION_RADIUS_PRESET[state.radiusIdx];
-    snapshot.odometerMin = this.normalizeOdometerMin(
-      state.odometerMin ?? null,
-    );
+    snapshot.odometerMin = this.normalizeOdometerMin(state.odometerMin ?? null);
     snapshot.odometerMax = this.normalizeOdometerMax(
       state.odometerMax ?? DEFAULT_ODOMETER_MAX,
     );
@@ -1958,8 +2002,15 @@ export class DCEngine {
         ? baseMaxValue ?? targetOdometer + MILEAGE_STEP
         : Math.min(targetOdometer + MILEAGE_STEP, DEFAULT_ODOMETER_MAX);
 
-    if (minCandidate !== null && maxCandidate !== null && maxCandidate <= minCandidate) {
-      maxCandidate = Math.min(minCandidate + MILEAGE_STEP * 2, DEFAULT_ODOMETER_MAX);
+    if (
+      minCandidate !== null &&
+      maxCandidate !== null &&
+      maxCandidate <= minCandidate
+    ) {
+      maxCandidate = Math.min(
+        minCandidate + MILEAGE_STEP * 2,
+        DEFAULT_ODOMETER_MAX,
+      );
     }
 
     if (maxCandidate === null || maxCandidate <= 0) {
@@ -1993,9 +2044,7 @@ export class DCEngine {
     return {
       min: this.normalizeOdometerMin(minCandidate),
       max:
-        maxCandidate === null
-          ? null
-          : this.normalizeOdometerMax(maxCandidate),
+        maxCandidate === null ? null : this.normalizeOdometerMax(maxCandidate),
     };
   }
 
@@ -2012,9 +2061,7 @@ export class DCEngine {
     }
 
     const nextMin =
-      currentMin === null
-        ? null
-        : Math.max(currentMin - MILEAGE_STEP, 0);
+      currentMin === null ? null : Math.max(currentMin - MILEAGE_STEP, 0);
     const nextMax =
       currentMax >= MAX_ODOMETER_LIMIT
         ? null
@@ -2024,20 +2071,13 @@ export class DCEngine {
       return null;
     }
 
-    if (
-      nextMin !== null &&
-      nextMax !== null &&
-      nextMin >= nextMax
-    ) {
+    if (nextMin !== null && nextMax !== null && nextMin >= nextMax) {
       return null;
     }
 
     return {
       min: this.normalizeOdometerMin(nextMin),
-      max:
-        nextMax === null
-          ? null
-          : this.normalizeOdometerMax(nextMax),
+      max: nextMax === null ? null : this.normalizeOdometerMax(nextMax),
     };
   }
 
@@ -2050,85 +2090,240 @@ export class DCEngine {
     }
     return count - TARGET_COMP_MAX;
   }
-  async completeVehicleBuild(page: Page, vehicle: IVehicle) {
+
+  /**
+   * Processes a question and generates an answer based on vehicle data.
+   * This is a unit function that can be tested independently.
+   *
+   * @param question - The question object from DC API
+   * @param vehicle - Vehicle information
+   * @param existingAnswer - Existing answer for this question book (if any)
+   * @returns Object containing the answer and optional transmission selection metadata
+   * @throws UncoveredCaseError if the question type is not handled
+   */
+  static processQuestionAnswer(
+    question: IQuestion,
+    vehicle: IVehicle,
+    existingAnswer?: IAnswer,
+  ): {
+    answer: IAnswer;
+    transmissionSelection?: {
+      vin: string;
+      selectedTransmission: { id: string; name: string };
+      availableOptions: Array<{ id: string; name: string }>;
+      vehicleTrim?: string;
+    };
+  } {
+    if (question.type === 'select') {
+      if (question.key === 'trim') {
+        const bestMatch = findBestMatch(vehicle.trim, question.items);
+
+        console.log(
+          `Selecting best matching trim: "${bestMatch.name}" for vehicle trim "${vehicle.trim}"`,
+        );
+
+        const answer: IAnswer = existingAnswer
+          ? { ...existingAnswer, modelId: bestMatch.id }
+          : {
+              book: question.book,
+              addDeduct: [],
+              modelId: bestMatch.id,
+              isBlank: null,
+            };
+
+        return { answer };
+      } else if (
+        question.key === 'transmission' &&
+        (!vehicle.transmission || vehicle.transmission.trim() === '')
+      ) {
+        // Vehicle doesn't have transmission info, so select randomly
+        const randomIndex = Math.floor(Math.random() * question.items.length);
+        const selectedTransmission = question.items[randomIndex];
+        const selectedTransmissionId = selectedTransmission.id;
+
+        console.log(
+          `⚠️  Vehicle without transmission info - randomly selecting transmission: "${selectedTransmission.name}" for VIN ${vehicle.vin}`,
+        );
+
+        const answer: IAnswer = existingAnswer
+          ? { ...existingAnswer, modelId: selectedTransmission.id }
+          : {
+              book: question.book,
+              addDeduct: question.items
+                .map((item: any) => ({
+                  action: item.id === selectedTransmissionId ? 0 : 1,
+                  code: item.id,
+                }))
+                .sort((a, b) => a.code.localeCompare(b.code)),
+              isBlank: null,
+            };
+
+        // Store metadata about transmission selection to notify caller
+        const availableOptions = question.items.map((item: any) => ({
+          id: item.id,
+          name: item.name,
+        }));
+
+        const transmissionSelection = {
+          vin: vehicle.vin,
+          selectedTransmission: {
+            id: selectedTransmission.id,
+            name: selectedTransmission.name,
+          },
+          availableOptions,
+          vehicleTrim: vehicle.trim,
+        };
+
+        return { answer, transmissionSelection };
+      } else {
+        // Other cases, we will pick randomly
+        const randomIndex = Math.floor(Math.random() * question.items.length);
+        const selectedTransmission = question.items[randomIndex];
+        const selectedTransmissionId = selectedTransmission.id;
+
+        console.log(
+          `⚠️  Vehicle without transmission info - randomly selecting transmission: "${selectedTransmission.name}" for VIN ${vehicle.vin}`,
+        );
+
+        const answer: IAnswer = existingAnswer
+          ? { ...existingAnswer, modelId: selectedTransmission.id }
+          : {
+              book: question.book,
+              addDeduct: question.items
+                .map((item: any) => ({
+                  action: item.id === selectedTransmissionId ? 0 : 1,
+                  code: item.id,
+                }))
+                .sort((a, b) => a.code.localeCompare(b.code)),
+              isBlank: null,
+            };
+
+        // Store metadata about transmission selection to notify caller
+        const availableOptions = question.items.map((item: any) => ({
+          id: item.id,
+          name: item.name,
+        }));
+
+        const transmissionSelection = {
+          vin: vehicle.vin,
+          selectedTransmission: {
+            id: selectedTransmission.id,
+            name: selectedTransmission.name,
+          },
+          availableOptions,
+          vehicleTrim: vehicle.trim,
+        };
+
+        return { answer, transmissionSelection };
+      }
+    } else if (question.type === 'checkbox') {
+      // select all options
+      const existingAddDeduct = existingAnswer?.addDeduct || [];
+      const newItems = question.items.filter(
+        (el: any) =>
+          !existingAddDeduct.some(
+            (existingEl: any) => existingEl.code === el.id,
+          ),
+      );
+      const newAddDeduct = newItems.map((el: any) => ({
+        action: 0,
+        code: el.id,
+      }));
+
+      const answer: IAnswer = existingAnswer
+        ? {
+            ...existingAnswer,
+            addDeduct: [...existingAddDeduct, ...newAddDeduct].sort((a, b) =>
+              a.code.localeCompare(b.code),
+            ),
+          }
+        : {
+            book: question.book,
+            addDeduct: question.items
+              .map((el: any) => ({
+                action: 0,
+                code: el.id,
+              }))
+              .sort((a, b) => a.code.localeCompare(b.code)),
+            isBlank: null,
+          };
+
+      return { answer };
+    } else {
+      // Uncovered case - just throw error, handling will be done outside this module
+      const error = new UncoveredCaseError(vehicle.vin, question, vehicle.trim);
+      console.error(`\n🚨 Uncovered case detected for VIN ${vehicle.vin}:`);
+      console.error('Question:', JSON.stringify(question, null, 2));
+      console.error('Vehicle Trim:', vehicle.trim);
+      throw error;
+    }
+  }
+  async completeVehicleBuild(
+    page: Page,
+    vehicle: IVehicle,
+  ): Promise<{
+    vehicleBuilds: any;
+    cityMpg: number;
+    vehicleWeight: number;
+    highwayMpg: number;
+    grossVehicleWeight: number;
+    transmissionSelection?: {
+      vin: string;
+      selectedTransmission: { id: string; name: string };
+      availableOptions: Array<{ id: string; name: string }>;
+      vehicleTrim?: string;
+      inventoryId?: string;
+    };
+  }> {
     const answers: IAnswer[] = [];
+    let transmissionSelection:
+      | {
+          vin: string;
+          selectedTransmission: { id: string; name: string };
+          availableOptions: Array<{ id: string; name: string }>;
+          vehicleTrim?: string;
+          inventoryId?: string;
+        }
+      | undefined = undefined;
 
     do {
       const {
-        question,
+        questions,
         vehicleBuilds,
         cityMpg,
         vehicleWeight,
         highwayMpg,
         grossVehicleWeight,
       } = await this.getBuild(page, vehicle.vin, accessToken!, answers);
-      if (!question) {
+      if (!questions.length) {
         return {
           vehicleBuilds,
           cityMpg,
           vehicleWeight,
           highwayMpg,
           grossVehicleWeight,
+          transmissionSelection,
         };
       }
-      const exist = answers.find(answer => answer.book === question.book);
+      questions.forEach(question => {
+        const exist = answers.find(answer => answer.book === question.book);
 
-      if (question.key === 'trim' && question.type === 'select') {
-        /**
-         * {
-  book: 4,
-  key: 'trim',
-  items: [
-    { id: '201600600170027', name: '4D SEDAN 320I XDRIVE SPORT' },
-    { id: '201600600175237', name: '4D SEDAN 320I XDRIVE' }
-  ],
-  type: 'select'
-}
-  vehicle trim: 320i xDrive
-  let's compare the similarity between the vehicle trim and the items in the select list
+        const result = DCEngine.processQuestionAnswer(question, vehicle, exist);
 
-         */
+        // Update or add answer
+        if (exist) {
+          Object.assign(exist, result.answer);
+        } else {
+          answers.push(result.answer);
+        }
 
-        // Get vehicle trim from vehicleBuilds if available, otherwise from vehicle object
-
-        // If we have a trim and this is a trim question, find the best matching item
-
-        const bestMatch = findBestMatch(vehicle.trim, question.items);
-
-        console.log(
-          `Selecting best matching trim: "${bestMatch.name}" for vehicle trim "${vehicle.trim}"`,
-        );
-        if (!exist)
-          answers.push({
-            book: question.book,
-            addDeduct: [],
-            modelId: bestMatch.id,
-            isBlank: null,
-          });
-        else exist.modelId = bestMatch.id;
-      } else if (question.type === 'checkbox') {
-        // select all options
-        answers.push({
-          book: question.book,
-          addDeduct: question.items.map((el: any) => ({
-            action: 1,
-            code: el.id,
-          })),
-          isBlank: null,
-        });
-        continue;
-      } else {
-        // Uncovered case - just throw error, handling will be done outside this module
-        const error = new UncoveredCaseError(
-          vehicle.vin,
-          question,
-          vehicle.trim,
-        );
-        console.error(`\n🚨 Uncovered case detected for VIN ${vehicle.vin}:`);
-        console.error('Question:', JSON.stringify(question, null, 2));
-        console.error('Vehicle Trim:', vehicle.trim);
-        throw error;
-      }
+        // Store transmission selection metadata if present
+        if (result.transmissionSelection) {
+          transmissionSelection = result.transmissionSelection;
+        }
+      });
+      // console.log('QUESTIONS', JSON.stringify(questions, null, 2));
+      // console.log('ANSWERS', JSON.stringify(answers, null, 2));
     } while (true);
   }
   async getBuild(
@@ -2137,7 +2332,7 @@ export class DCEngine {
     token: string,
     answers: Array<IAnswer>,
   ): Promise<{
-    question: any;
+    questions: IQuestion[];
     vehicleBuilds: any;
     highwayMpg: number;
     cityMpg: number;
@@ -2173,65 +2368,35 @@ export class DCEngine {
       vehicleBuilds,
       grossVehicleWeight,
     } = resp;
+    // console.log(JSON.stringify(question, null, 2));
     // if (!vehicleBuilds) throw new Error('Invalid VIN');
-    const questionObj: IQuestion | undefined =
+    const questionObj: IQuestion[] =
       question && question.options.length > 0
-        ? {
-            book: question.book,
-            key: question.options[0].subTitle?.toLowerCase() || '',
-            items: question.options[0].items.map((el: any) => ({
-              id: el.id,
-              name: el.displayName,
-            })),
-            type: question.options[0].optionType === 1 ? 'checkbox' : 'select',
-          }
-        : undefined;
-    if (question && questionObj) {
-      if (question.title.toLowerCase() === 'please select trim.')
-        questionObj.key = 'trim';
-    }
+        ? question.options.map((option: any) => {
+            let key = option.subTitle?.toLowerCase() || '';
+            if (question.title?.toLowerCase() === 'please select trim.') {
+              key = 'trim';
+            }
+            return {
+              book: question.book,
+              key,
+              items: option.items.map((el: any) => ({
+                id: el.id,
+                name: el.displayName,
+              })),
+              type: option.optionType === 1 ? 'checkbox' : 'select',
+            } as IQuestion;
+          })
+        : [];
+
     return {
-      question: questionObj,
+      questions: questionObj,
       vehicleBuilds,
       highwayMpg,
       cityMpg,
       vehicleWeight,
       grossVehicleWeight,
     };
-
-    if (question) {
-      console.log(question);
-      const newAnswer: IAnswer[] = [...answers];
-      if (question.title === 'Please select trim.') {
-        console.log(
-          question.title,
-          question.options[0].items.map((el: any) => ({
-            modelId: el.id,
-            name: el.displayName,
-          })),
-        );
-        newAnswer.push({
-          addDeduct: [],
-          book: question.book,
-          isBlank: null,
-          modelId: question.options[0].items[0].id,
-        });
-      } else
-        newAnswer.push({
-          book: question.book,
-          addDeduct: question.options
-            .map((option: any) =>
-              option.items.map((item: any) => ({
-                action: option.optionType,
-                code: item.id,
-              })),
-            )
-            .flat(),
-          isBlank: null,
-        });
-      return this.getBuild(page, vin, token, newAnswer);
-    }
-    return vehicleBuilds;
   }
   async getMarketPriceFilter(page: Page, inventoryId: string) {
     const data = await sendAPIRequest(
@@ -2279,7 +2444,12 @@ export class DCEngine {
       (marketLookupStats.vehicleCount === 0 ||
         marketLookupStats.vehicleCount < 1)
     ) {
-      throw new NoCompFoundError(vin, marketLookupStats.vehicleCount);
+      const inventoryId = vehicleInfo?.entityID || vehicleInfo?.entityId;
+      throw new NoCompFoundError(
+        vin,
+        marketLookupStats.vehicleCount,
+        inventoryId,
+      );
     }
 
     return marketLookupStats;
