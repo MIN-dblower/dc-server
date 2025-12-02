@@ -16,7 +16,7 @@ export interface DCUpdateJobData {
 }
 
 export interface TelegramMessageJobData {
-  type: 'uncovered_case' | 'blocked_vin_attempt' | 'job_failure' | 'queue_backup' | 'system_health';
+  type: 'uncovered_case' | 'blocked_vin_attempt' | 'job_failure' | 'queue_backup' | 'system_health' | 'auto_selection_mode';
   vin?: string;
   question?: any;
   vehicleTrim?: string;

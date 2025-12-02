@@ -1,7 +1,8 @@
 import { AuctionMonitor } from '../services/auctionMonitor';
-import * as dotenv from 'dotenv';
+import { loadEnvConfig } from '../config/env.config';
 
-dotenv.config();
+// Initialize environment configuration
+loadEnvConfig();
 
 /**
  * Auction Monitor Worker

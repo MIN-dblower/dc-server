@@ -8,6 +8,10 @@ import {
   DCUpdateResult,
 } from './dcUpdateInterface';
 import { DCUpdateJobData } from '../types/job.types';
+import { isVinBlocked, getBlockedVinDetails } from './blockedVins';
+import { pauseJobsForBlockedVin } from './jobQueue';
+import { enqueueTelegramMessage } from './telegramQueue';
+import { BlockedVinError } from '../errors/blockedVinError';
 
 function isAdesaRecord(record: AdesaRecord | EdgePipelineRecord): record is AdesaRecord {
   return (record as AdesaRecord).laneRun !== undefined;
@@ -19,6 +23,7 @@ export async function processDCUpdateJob(
   const { record, isNewRecord } = job.data;
 
   console.log(`\n⚙️  Processing DC job ${job.id} for VIN ${record.vin}`);
+
 
   const dcResult = await updateDCForAuctionRecord(record, isNewRecord);
 

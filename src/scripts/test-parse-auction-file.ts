@@ -12,14 +12,15 @@
  *   ts-node src/scripts/test-parse-auction-file.ts 1abc123def456 edge
  */
 
-import * as dotenv from 'dotenv';
+import { loadEnvConfig } from '../config/env.config';
 import { readGoogleSheetAsCSV, downloadFile, getFileInfo } from '../services/googledrive';
 import { parseAdesaCSV } from '../utils/adesaCsvParser';
 import { parseCSV } from '../utils/csvParser';
 import { AdesaRecord } from '../interfaces/adesa.types';
 import { EdgePipelineRecord } from '../interfaces/edgePipeline.types';
 
-dotenv.config();
+// Initialize environment configuration
+loadEnvConfig();
 
 type AuctionType = 'adesa' | 'edge' | 'auto';
 

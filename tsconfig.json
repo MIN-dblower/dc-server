@@ -19,10 +19,10 @@
     "skipLibCheck": true,
     "baseUrl": "./src",
    "paths": {
-      "@models/*": ["models/*"], // Alias for 'src/models'
-      "@utils/*": ["utils/*"],   // Alias for 'src/utils'
-      "@services/*": ["services/*"], // Alias for 'src/services'
-      "@components/*": ["components/*"], // Alias for 'src/components'
+      "@models/*": ["models/*"],
+      "@utils/*": ["utils/*"],
+      "@services/*": ["services/*"],
+      "@components/*": ["components/*"],
       "@interfaces/*": ["interfaces/*"]
     },
     "lib": ["ESNext", "DOM"],

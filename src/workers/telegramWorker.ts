@@ -4,17 +4,18 @@
  * Processes Telegram message jobs from the queue
  */
 
-import * as dotenv from 'dotenv';
 import { Worker } from 'bullmq';
 import IORedis from 'ioredis';
-import { getRedisConfig } from '../../config/redis.config';
+import { loadEnvConfig } from '../config/env.config';
+import { getRedisConfig } from '../config/redis.config';
 import {
   TELEGRAM_MESSAGE_QUEUE,
   TELEGRAM_MESSAGE_JOB,
 } from '../types/job.types';
 import { processTelegramMessage } from '../services/telegramProcessor';
 
-dotenv.config();
+// Initialize environment configuration
+loadEnvConfig();
 
 async function main(): Promise<void> {
   console.log('📱 Starting Telegram Message Worker...');

@@ -80,6 +80,28 @@ export async function processTelegramMessage(
         await telegramService.sendMessage(healthMessage);
         break;
 
+      case 'auto_selection_mode':
+        if (!vin || !details) {
+          throw new Error('Missing required fields for auto_selection_mode alert');
+        }
+        const selectionKey = details.key || 'unknown';
+        const selectionType = selectionKey === 'transmission' ? 'Transmission' : 
+                             selectionKey === 'trim' ? 'Trim' : 
+                             selectionKey.charAt(0).toUpperCase() + selectionKey.slice(1);
+        
+        const autoSelectionMessage = `🤖 <b>Auto Selection Mode</b>\n\n` +
+          `VIN: <code>${vin}</code>\n` +
+          `Selection Key: <code>${selectionKey}</code>\n` +
+          `Vehicle Trim: ${vehicleTrim || 'N/A'}\n` +
+          `Message: ${details.message || 'N/A'}\n` +
+          `Selected ${selectionType}: <b>${details.selectedOption?.name || 'N/A'}</b>\n` +
+          `Available Options: ${details.availableOptions?.length || 0}\n` +
+          (details.auctionType ? `Auction Type: ${details.auctionType}\n` : '') +
+          (details.inventoryId ? `Inventory ID: <code>${details.inventoryId}</code>\n` : '') +
+          `\nTime: ${new Date().toISOString()}`;
+        await telegramService.sendMessage(autoSelectionMessage);
+        break;
+
       default:
         throw new Error(`Unknown Telegram message type: ${type}`);
     }
