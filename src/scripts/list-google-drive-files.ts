@@ -1,5 +1,9 @@
 import { google, drive_v3 } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
+import { loadEnvConfig } from '../config/env.config';
+
+// Initialize environment configuration
+loadEnvConfig();
 
 /**
  * Google Drive File Listing Script

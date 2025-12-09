@@ -1,3 +1,4 @@
+import { loadEnvConfig } from '../config/env.config';
 import {
   listFilesInFolder,
   findFileByName,
@@ -6,6 +7,9 @@ import {
 } from '../services/googledrive';
 import { parseCSV } from '../utils/csvParser';
 import { EdgePipelineRecord } from '../interfaces/edgePipeline.types';
+
+// Initialize environment configuration
+loadEnvConfig();
 
 /**
  * Test script to verify Google Drive CSV file reading

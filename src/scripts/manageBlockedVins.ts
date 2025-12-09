@@ -12,10 +12,11 @@
  *     npx ts-node src/scripts/manageBlockedVins.ts unblock <VIN>
  */
 
-import * as dotenv from 'dotenv';
+import { loadEnvConfig } from '../config/env.config';
 import { getAllBlockedVins, getBlockedVinDetails, unblockVin } from '../services/blockedVins';
 
-dotenv.config();
+// Initialize environment configuration
+loadEnvConfig();
 
 async function main(): Promise<void> {
   const command = process.argv[2];

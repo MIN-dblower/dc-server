@@ -1,5 +1,9 @@
 import { google } from 'googleapis';
 import * as readline from 'readline';
+import { loadEnvConfig } from '../config/env.config';
+
+// Initialize environment configuration
+loadEnvConfig();
 
 /**
  * OAuth 2.0 Authorization Script for Google Drive API

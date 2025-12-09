@@ -1,9 +1,10 @@
-import * as dotenv from 'dotenv';
+import { loadEnvConfig } from '../config/env.config';
 import { DCEngine } from '../services/dcengine';
 import { sendAPIRequest } from '../class/window';
 import { IVehicle } from '../interfaces/vehicle.types';
 
-dotenv.config();
+// Initialize environment configuration
+loadEnvConfig();
 
 const TEST_VIN = process.env.TEST_VIN ?? 'REPLACE_ME_VIN';
 const TEST_ODOMETER = process.env.TEST_ODOMETER

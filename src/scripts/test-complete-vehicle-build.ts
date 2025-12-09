@@ -2,12 +2,12 @@ import { DCEngine } from '../services/dcengine';
 import { IVehicle } from '../interfaces/vehicle.types';
 
 // Placeholder values - update these as needed
-const TEST_VIN = 'WBA8E5G54GNU21913';
-const TEST_ODOMETER = 91691;
+const TEST_VIN = '1HGCR3F95GA006506';
+const TEST_ODOMETER = 84307;
 const TEST_MAKE = 'REPLACE_ME_MAKE';
 const TEST_MODEL = 'REPLACE_ME_MODEL';
-const TEST_YEAR = 2020;
-const TEST_TRIM = '320i xDrive';
+const TEST_YEAR = 2016;
+const TEST_TRIM = 'Sedan Touring';
 const TEST_TRANSMISSION = ''; // Empty string means transmission will be selected randomly if needed
 
 async function main(): Promise<void> {
@@ -95,23 +95,23 @@ async function main(): Promise<void> {
     console.log(`Vehicle Weight: ${result.vehicleWeight || 'N/A'}`);
     console.log(`Gross Vehicle Weight: ${result.grossVehicleWeight || 'N/A'}`);
 
-    if (result.transmissionSelection) {
+    if (result.autoSelection) {
       console.log('');
       console.log('⚠️  Transmission Selection Notification:');
-      console.log(`  - VIN: ${result.transmissionSelection.vin}`);
+      console.log(`  - VIN: ${result.autoSelection.vin}`);
       console.log(
-        `  - Selected Transmission: ${result.transmissionSelection.selectedTransmission.name} (ID: ${result.transmissionSelection.selectedTransmission.id})`,
+        `  - Selected Transmission: ${result.autoSelection.selectedOption.name} (ID: ${result.autoSelection.selectedOption.id})`,
       );
       console.log(
-        `  - Vehicle Trim: ${result.transmissionSelection.vehicleTrim ||
+        `  - Vehicle Trim: ${result.autoSelection.vehicleTrim ||
           'N/A'}`,
       );
       console.log(
-        `  - Inventory ID: ${result.transmissionSelection.inventoryId ||
+        `  - Inventory ID: ${result.autoSelection.inventoryId ||
           'N/A'}`,
       );
       console.log(`  - Available Options:`);
-      result.transmissionSelection.availableOptions.forEach((option, index) => {
+      result.autoSelection.availableOptions.forEach((option: any, index: number) => {
         console.log(`    ${index + 1}. ${option.name} (ID: ${option.id})`);
       });
     }

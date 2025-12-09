@@ -527,16 +527,16 @@ describe('DCEngine.processQuestionAnswer', () => {
 
         // Compare transmissionSelection if provided
         if (expected.transmissionSelection) {
-          expect(result.transmissionSelection).toBeDefined();
-          expect(result.transmissionSelection?.vin).toBe(expected.transmissionSelection.vin);
-          expect(result.transmissionSelection?.selectedTransmission).toEqual(
+          expect(result.autoSelection).toBeDefined();
+          expect(result.autoSelection?.vin).toBe(expected.transmissionSelection.vin);
+          expect(result.autoSelection?.selectedOption).toEqual(
             expected.transmissionSelection.selectedTransmission,
           );
-          expect(result.transmissionSelection?.availableOptions).toEqual(
+          expect(result.autoSelection?.availableOptions).toEqual(
             expected.transmissionSelection.availableOptions,
           );
           if (expected.transmissionSelection.vehicleTrim !== undefined) {
-            expect(result.transmissionSelection?.vehicleTrim).toBe(
+            expect(result.autoSelection?.vehicleTrim).toBe(
               expected.transmissionSelection.vehicleTrim,
             );
           }

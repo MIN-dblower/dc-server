@@ -183,25 +183,30 @@ async function performFullAppraisal(
       };
     }
 
-    // Handle transmission selection notification if present
-    if (registerResult.transmissionSelection) {
-      const { transmissionSelection } = registerResult;
+    // Handle auto selection notification if present
+    if (registerResult.autoSelection) {
+      const { autoSelection } = registerResult;
+      const selectionType = autoSelection.key === 'transmission' ? 'Transmission' : 
+                           autoSelection.key === 'trim' ? 'Trim' : 
+                           autoSelection.key.charAt(0).toUpperCase() + autoSelection.key.slice(1);
+      
       console.log(
-        `⚠️  Transmission selected for Edge Pipeline vehicle VIN ${transmissionSelection.vin}: ${transmissionSelection.selectedTransmission.name}${transmissionSelection.inventoryId ? ` (Inventory ID: ${transmissionSelection.inventoryId})` : ''}`,
+        `⚠️  ${selectionType} auto-selected for Edge Pipeline vehicle VIN ${autoSelection.vin}: ${autoSelection.selectedOption.name}${autoSelection.inventoryId ? ` (Inventory ID: ${autoSelection.inventoryId})` : ''}`,
       );
 
       // Notify via Telegram
       try {
         await enqueueTelegramMessage({
-          type: 'uncovered_case',
-          vin: transmissionSelection.vin,
-          vehicleTrim: transmissionSelection.vehicleTrim,
+          type: 'auto_selection_mode',
+          vin: autoSelection.vin,
+          vehicleTrim: autoSelection.vehicleTrim,
           details: {
-            message: 'Transmission randomly selected for vehicle without transmission info',
-            selectedTransmission: transmissionSelection.selectedTransmission,
-            availableOptions: transmissionSelection.availableOptions,
+            key: autoSelection.key,
+            message: `${selectionType} automatically selected for vehicle without ${autoSelection.key} info`,
+            selectedOption: autoSelection.selectedOption,
+            availableOptions: autoSelection.availableOptions,
             auctionType: type,
-            inventoryId: transmissionSelection.inventoryId,
+            inventoryId: autoSelection.inventoryId,
           },
         });
       } catch (telegramError) {
@@ -212,9 +217,9 @@ async function performFullAppraisal(
       try {
         const emailService = getEmailNotificationService();
         await emailService.sendTransmissionSelectionNotification({
-          vin: transmissionSelection.vin,
-          selectedTransmission: transmissionSelection.selectedTransmission,
-          availableOptions: transmissionSelection.availableOptions,
+          vin: autoSelection.vin,
+          selectedTransmission: autoSelection.selectedOption,
+          availableOptions: autoSelection.availableOptions,
           auctionType: type,
         });
       } catch (emailError) {
@@ -654,32 +659,6 @@ export async function updateDCForAuctionRecord(
   const isAdesa = isAdesaRecord(record);
   const recordType = isAdesa ? 'Adesa' : 'Edge Pipeline';
   const note = getNotes(record);
-
-  // Check if VIN is blocked before processing
-  const blocked = await isVinBlocked(record.vin);
-  if (blocked) {
-    const details = await getBlockedVinDetails(record.vin);
-    console.warn(
-      `\n🚫 VIN ${
-        record.vin
-      } is blocked from processing. Reason: ${details?.reason || 'Unknown'}`,
-    );
-
-    // Queue Telegram alert about blocked VIN attempt
-    if (details) {
-      await enqueueTelegramMessage({
-        type: 'blocked_vin_attempt',
-        vin: record.vin,
-        details,
-      });
-    }
-
-    return {
-      success: false,
-      error: `VIN is blocked: ${details?.reason ||
-        'Unknown reason'}. Please unblock the VIN after fixing the issue.`,
-    };
-  }
 
   console.log(
     `\n🔄 DC Update for ${recordType} record - VIN: ${record.vin}, isNew: ${isNewRecord}`,

@@ -2,11 +2,12 @@ import express from 'express';
 import { createBullBoard } from '@bull-board/api';
 import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
 import { ExpressAdapter } from '@bull-board/express';
-import * as dotenv from 'dotenv';
+import { loadEnvConfig } from '../config/env.config';
 import { getDCUpdateQueue } from '../services/jobQueue';
 import { getTelegramQueue } from '../services/telegramQueue';
 
-dotenv.config();
+// Initialize environment configuration
+loadEnvConfig();
 
 const PORT = process.env.BULL_BOARD_PORT
   ? parseInt(process.env.BULL_BOARD_PORT, 10)

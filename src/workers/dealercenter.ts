@@ -18,6 +18,7 @@ const main = async () => {
     year: 2014,
     trim: 'Limited',
     odometer: 127073,
+    transmission: '',
   };
   const note =
     '*** NC *** NO LIGHTS *** MS - FUEL ?? *** CHECK CARFAX & FACTORY WARRANTY ***';
@@ -167,6 +168,7 @@ const onUpdateOdometor = async () => {
     year: 2014,
     odometer: 557073,
     trim: 'Limited',
+    transmission: '',
   };
   const watchNote =
     '*** MS *** NC *** PDR - $$225$$ *** CONSOLE TRIM $$125$$ *** DROVE GOOD';

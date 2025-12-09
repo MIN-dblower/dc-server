@@ -6,7 +6,7 @@
 
 import { Queue, JobsOptions } from 'bullmq';
 import IORedis from 'ioredis';
-import { getRedisConfig } from '../../config/redis.config';
+import { getRedisConfig } from '../config/redis.config';
 import {
   TELEGRAM_MESSAGE_QUEUE,
   TELEGRAM_MESSAGE_JOB,

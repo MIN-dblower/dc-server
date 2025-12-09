@@ -1148,9 +1148,10 @@ export class DCEngine {
   ): Promise<{
     isCompleted: boolean;
     error: string | null;
-    transmissionSelection?: {
+    autoSelection?: {
+      key: string;
       vin: string;
-      selectedTransmission: { id: string; name: string };
+      selectedOption: { id: string; name: string };
       availableOptions: Array<{ id: string; name: string }>;
       vehicleTrim?: string;
       inventoryId?: string;
@@ -1163,13 +1164,13 @@ export class DCEngine {
       vehicleWeight,
       highwayMpg,
       grossVehicleWeight,
-      transmissionSelection,
+      autoSelection,
     } = await this.completeVehicleBuild(page, vehicle);
     if (vehicleBuilds.length === 0)
       return {
         isCompleted: false,
         error: 'Not Valid Vin',
-        transmissionSelection,
+        autoSelection,
       };
 
     const draftData = await sendAPIRequest(
@@ -1575,15 +1576,15 @@ export class DCEngine {
       },
     );
 
-    // Add inventoryId to transmissionSelection if present
-    const transmissionSelectionWithInventoryId = transmissionSelection
-      ? { ...transmissionSelection, inventoryId: entityID }
+    // Add inventoryId to autoSelection if present
+    const autoSelectionWithInventoryId = autoSelection
+      ? { ...autoSelection, inventoryId: entityID }
       : undefined;
 
     return {
       isCompleted: true,
       error: null,
-      transmissionSelection: transmissionSelectionWithInventoryId,
+      autoSelection: autoSelectionWithInventoryId,
     };
     // console.log(saveMarketPricingDetail);
   }
@@ -2107,9 +2108,10 @@ export class DCEngine {
     existingAnswer?: IAnswer,
   ): {
     answer: IAnswer;
-    transmissionSelection?: {
+    autoSelection?: {
+      key: string;
       vin: string;
-      selectedTransmission: { id: string; name: string };
+      selectedOption: { id: string; name: string };
       availableOptions: Array<{ id: string; name: string }>;
       vehicleTrim?: string;
     };
@@ -2158,15 +2160,16 @@ export class DCEngine {
               isBlank: null,
             };
 
-        // Store metadata about transmission selection to notify caller
+        // Store metadata about auto selection to notify caller
         const availableOptions = question.items.map((item: any) => ({
           id: item.id,
           name: item.name,
         }));
 
-        const transmissionSelection = {
+        const autoSelection = {
+          key: question.key,
           vin: vehicle.vin,
-          selectedTransmission: {
+          selectedOption: {
             id: selectedTransmission.id,
             name: selectedTransmission.name,
           },
@@ -2174,7 +2177,7 @@ export class DCEngine {
           vehicleTrim: vehicle.trim,
         };
 
-        return { answer, transmissionSelection };
+        return { answer, autoSelection };
       } else {
         // Other cases, we will pick randomly
         const randomIndex = Math.floor(Math.random() * question.items.length);
@@ -2198,15 +2201,16 @@ export class DCEngine {
               isBlank: null,
             };
 
-        // Store metadata about transmission selection to notify caller
+        // Store metadata about auto selection to notify caller
         const availableOptions = question.items.map((item: any) => ({
           id: item.id,
           name: item.name,
         }));
 
-        const transmissionSelection = {
+        const autoSelection = {
+          key: question.key,
           vin: vehicle.vin,
-          selectedTransmission: {
+          selectedOption: {
             id: selectedTransmission.id,
             name: selectedTransmission.name,
           },
@@ -2214,7 +2218,7 @@ export class DCEngine {
           vehicleTrim: vehicle.trim,
         };
 
-        return { answer, transmissionSelection };
+        return { answer, autoSelection };
       }
     } else if (question.type === 'checkbox') {
       // select all options
@@ -2267,19 +2271,21 @@ export class DCEngine {
     vehicleWeight: number;
     highwayMpg: number;
     grossVehicleWeight: number;
-    transmissionSelection?: {
+    autoSelection?: {
+      key: string;
       vin: string;
-      selectedTransmission: { id: string; name: string };
+      selectedOption: { id: string; name: string };
       availableOptions: Array<{ id: string; name: string }>;
       vehicleTrim?: string;
       inventoryId?: string;
     };
   }> {
     const answers: IAnswer[] = [];
-    let transmissionSelection:
+    let autoSelection:
       | {
+          key: string;
           vin: string;
-          selectedTransmission: { id: string; name: string };
+          selectedOption: { id: string; name: string };
           availableOptions: Array<{ id: string; name: string }>;
           vehicleTrim?: string;
           inventoryId?: string;
@@ -2302,7 +2308,7 @@ export class DCEngine {
           vehicleWeight,
           highwayMpg,
           grossVehicleWeight,
-          transmissionSelection,
+          autoSelection,
         };
       }
       questions.forEach(question => {
@@ -2317,9 +2323,9 @@ export class DCEngine {
           answers.push(result.answer);
         }
 
-        // Store transmission selection metadata if present
-        if (result.transmissionSelection) {
-          transmissionSelection = result.transmissionSelection;
+        // Store auto selection metadata if present
+        if (result.autoSelection) {
+          autoSelection = result.autoSelection;
         }
       });
       // console.log('QUESTIONS', JSON.stringify(questions, null, 2));

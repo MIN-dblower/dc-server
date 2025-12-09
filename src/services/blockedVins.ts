@@ -6,7 +6,7 @@
  */
 
 import IORedis from 'ioredis';
-import { getRedisConfig } from '../../config/redis.config';
+import { getRedisConfig } from '../config/redis.config';
 
 const BLOCKED_VINS_KEY = 'blocked:vins';
 const BLOCKED_VIN_DETAILS_KEY = (vin: string) => `blocked:vin:${vin}`;
@@ -66,6 +66,7 @@ export async function getBlockedVinDetails(vin: string): Promise<BlockedVinDetai
 
 /**
  * Block a VIN from processing
+ * Also pauses any jobs for this VIN to prevent retries
  */
 export async function blockVin(
   vin: string,
@@ -90,6 +91,22 @@ export async function blockVin(
     await client.set(BLOCKED_VIN_DETAILS_KEY(vin), JSON.stringify(details));
 
     console.log(`🚫 VIN ${vin} has been blocked. Reason: ${reason}`);
+
+    // Pause any jobs for this VIN to prevent retries
+    // Use dynamic import to avoid circular dependency
+    try {
+      const { pauseJobsForBlockedVin } = await import('./jobQueue');
+      const pausedCount = await pauseJobsForBlockedVin(vin);
+      if (pausedCount > 0) {
+        console.log(`⏸️  Paused ${pausedCount} job(s) for blocked VIN ${vin}`);
+      }
+    } catch (pauseError) {
+      // Log but don't fail the block operation if pausing fails
+      console.warn(
+        `⚠️  Could not pause jobs for blocked VIN ${vin}:`,
+        pauseError instanceof Error ? pauseError.message : pauseError,
+      );
+    }
   } catch (error) {
     console.error(`Error blocking VIN ${vin}:`, error);
     throw error;
@@ -98,6 +115,7 @@ export async function blockVin(
 
 /**
  * Unblock a VIN (manual intervention)
+ * Also resumes any paused jobs for this VIN
  */
 export async function unblockVin(vin: string): Promise<void> {
   try {
@@ -105,6 +123,14 @@ export async function unblockVin(vin: string): Promise<void> {
     await client.srem(BLOCKED_VINS_KEY, vin);
     await client.del(BLOCKED_VIN_DETAILS_KEY(vin));
     console.log(`✅ VIN ${vin} has been unblocked`);
+
+    // Resume any paused jobs for this VIN
+    // Use dynamic import to avoid circular dependency
+    const { resumeJobsForUnblockedVin } = await import('./jobQueue');
+    const resumedCount = await resumeJobsForUnblockedVin(vin);
+    if (resumedCount > 0) {
+      console.log(`▶️  Resumed ${resumedCount} job(s) for unblocked VIN ${vin}`);
+    }
   } catch (error) {
     console.error(`Error unblocking VIN ${vin}:`, error);
     throw error;
