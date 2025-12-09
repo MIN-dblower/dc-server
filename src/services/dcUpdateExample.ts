@@ -64,12 +64,10 @@ function recordToVehicle(record: AuctionRecordUnion): IVehicle {
     model: record.model,
     year: record.year,
     odometer: record.odometer,
-    trim: isAdesaRecord(record) 
-      ? record.trim || '' 
+    trim: isAdesaRecord(record)
+      ? record.trim || ''
       : (record as EdgePipelineRecord).style || '',
-    transmission: isAdesaRecord(record) 
-      ? record.transmission || '' 
-      : '', // Edge Pipeline doesn't have transmission, empty string triggers random selection
+    transmission: isAdesaRecord(record) ? record.transmission || '' : '', // Edge Pipeline doesn't have transmission, empty string triggers random selection
   };
 }
 
@@ -186,12 +184,22 @@ async function performFullAppraisal(
     // Handle auto selection notification if present
     if (registerResult.autoSelection) {
       const { autoSelection } = registerResult;
-      const selectionType = autoSelection.key === 'transmission' ? 'Transmission' : 
-                           autoSelection.key === 'trim' ? 'Trim' : 
-                           autoSelection.key.charAt(0).toUpperCase() + autoSelection.key.slice(1);
-      
+      const selectionType =
+        autoSelection.key === 'transmission'
+          ? 'Transmission'
+          : autoSelection.key === 'trim'
+          ? 'Trim'
+          : autoSelection.key.charAt(0).toUpperCase() +
+            autoSelection.key.slice(1);
+
       console.log(
-        `⚠️  ${selectionType} auto-selected for Edge Pipeline vehicle VIN ${autoSelection.vin}: ${autoSelection.selectedOption.name}${autoSelection.inventoryId ? ` (Inventory ID: ${autoSelection.inventoryId})` : ''}`,
+        `⚠️  ${selectionType} auto-selected for Edge Pipeline vehicle VIN ${
+          autoSelection.vin
+        }: ${autoSelection.selectedOption.name}${
+          autoSelection.inventoryId
+            ? ` (Inventory ID: ${autoSelection.inventoryId})`
+            : ''
+        }`,
       );
 
       // Notify via Telegram
@@ -245,14 +253,9 @@ async function performFullAppraisal(
   } = await dcEngine.getMarketPriceFilter(page, inventoryId);
 
   vehicleInfo.odometer = vehicle.odometer;
-  const { filters: adjustedFilters } = await dcEngine.adjustFilters(
-    page,
-    filters,
-    vehicleInfo,
-  );
-  const effectiveFilters = adjustedFilters || filters;
+  const effectiveFilters = filters;
 
-  // Get market price (will throw NoCompFoundError if no comps found)
+  // Get market price
   const {
     priceAvg: price,
     minPrice,
@@ -266,6 +269,11 @@ async function performFullAppraisal(
     vehicleInfo,
     vehicle.vin,
   );
+
+  // Check if no similar vehicles found
+  if (vehicleCount === 0 || vehicleCount < 1) {
+    throw new NoCompFoundError(vehicle.vin, vehicleCount, inventoryId);
+  }
 
   // Calculate prices
   const askingPrice = getJustBelowNearestThousand(price);
@@ -495,6 +503,11 @@ async function updateExistingAppraisal(
     updatedVehicleInfo,
     record.vin,
   );
+
+  // Check if no similar vehicles found
+  if (vehicleCount === 0 || vehicleCount < 1) {
+    throw new NoCompFoundError(record.vin, vehicleCount, inventoryId);
+  }
 
   const askingPrice = getJustBelowNearestThousand(price);
   const marginPrice = getMarginPrice(askingPrice);
@@ -790,7 +803,10 @@ export async function updateDCForAuctionRecord(
       let inventoryId = error.inventoryId;
       if (!inventoryId && dcEngine && page) {
         try {
-          const fetchedInventoryId = await dcEngine.getInventoryByVin(page, record.vin);
+          const fetchedInventoryId = await dcEngine.getInventoryByVin(
+            page,
+            record.vin,
+          );
           inventoryId = fetchedInventoryId || undefined;
         } catch (e) {
           // Ignore errors when trying to get inventoryId
@@ -809,7 +825,9 @@ export async function updateDCForAuctionRecord(
       await enqueueTelegramMessage({
         type: 'system_health',
         component: 'DC Market Price',
-        status: `No comps found for VIN: ${record.vin}. Vehicle count: ${error.vehicleCount}${inventoryId ? `. Inventory ID: ${inventoryId}` : ''}`,
+        status: `No comps found for VIN: ${record.vin}. Vehicle count: ${
+          error.vehicleCount
+        }${inventoryId ? `. Inventory ID: ${inventoryId}` : ''}`,
         details: {
           inventoryId,
         },

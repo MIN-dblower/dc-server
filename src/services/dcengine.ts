@@ -9,7 +9,6 @@ import { IVehicle } from 'interfaces/vehicle.types';
 import { generateId } from '../utils/auction';
 import { findBestMatch } from '../utils/stringSimilarity';
 import { UncoveredCaseError } from '../errors/uncoveredCaseError';
-import { NoCompFoundError } from '../errors/noCompFoundError';
 
 const FILTER_LOG_PREFIX = '[MarketFilters]';
 const LOCATION_RADIUS_PRESET = [
@@ -42,10 +41,12 @@ const MILEAGE_WEIGHT = 4;
 const TRANSMISSION_WEIGHT = 0.6;
 const IS_ACTIVE_WEIGHT = 3;
 const MILEAGE_STEP = 7500;
+const MILEAGE_STEP_HIGH = 15000;
+const MILEAGE_STEP_THRESHOLD = 130000;
 const MIN_ODOMETER_LIMIT = 5000;
 const MAX_ODOMETER_LIMIT = 500000;
 const DEFAULT_ODOMETER_MAX = MAX_ODOMETER_LIMIT;
-const MAX_SEARCH_ITERATIONS = 40;
+const MAX_SEARCH_ITERATIONS = 80;
 type TransmissionMode = 'original' | 'expanded';
 
 interface FilterSearchState {
@@ -1402,7 +1403,7 @@ export class DCEngine {
       equipments: [],
       fuelTypes: [],
       geoCoordinate: null,
-      isActive: 1,
+      isActive: 0,
       isCertified: null,
       longitude: 0,
       latitude: 0,
@@ -1468,15 +1469,6 @@ export class DCEngine {
       { Authorization: `Bearer ${accessToken}` },
       { filters: adjustedFilters, maxDigitalPriceLockType: null, vehicleInfo },
     );
-    console.log(marketLookupStats.vehicleCount);
-
-    // Check if no similar vehicles found
-    if (
-      marketLookupStats.vehicleCount === 0 ||
-      marketLookupStats.vehicleCount < 1
-    ) {
-      throw new NoCompFoundError(vin, marketLookupStats.vehicleCount);
-    }
 
     const priceRankingData = await sendAPIRequest(
       page,
@@ -1540,6 +1532,9 @@ export class DCEngine {
     ];
     draftData['grossVehicleWeight'] = grossVehicleWeight;
     draftData['vin'] = vin;
+    draftData['vehiclePrice '] = 0;
+    draftData['accountingAssetTypeId'] = 2;
+
 
     const savedResult = await sendAPIRequest(
       page,
@@ -1629,6 +1624,7 @@ export class DCEngine {
     let iterations = 0;
     const evaluationCache = new Map<string, EvaluationResult>();
     let currentState = initialState;
+    let hasTriedIsActive1 = false; // Track if we've already tried isActive=1
 
     let currentEvaluation = await this.getEvaluation(
       page,
@@ -1699,6 +1695,8 @@ export class DCEngine {
         baseTransmissions,
         currentState,
         evaluationCache,
+        initialRange, // Pass initial range for isActive=1 fallback
+        hasTriedIsActive1, // Pass flag to prevent duplicate isActive=1 candidates
       );
 
       if (!candidates.length) {
@@ -1712,7 +1710,7 @@ export class DCEngine {
       const nextCandidate = candidates[0];
 
       console.log(
-        `${FILTER_LOG_PREFIX}[Weighted] Moving axis=${nextCandidate.axis} ` +
+        `${FILTER_LOG_PREFIX}[Weighted] iteration: ${iterations} Moving axis=${nextCandidate.axis} ` +
           `count=${nextCandidate.evaluation.count} delta=${nextCandidate.delta}`,
       );
 
@@ -1737,6 +1735,11 @@ export class DCEngine {
       currentEvaluation = nextCandidate.evaluation;
       currentDelta = nextCandidate.delta;
       bestResult = nextCandidate;
+
+      // Track if we've selected the isActive=1 candidate
+      if (nextCandidate.axis === 'isActive=1') {
+        hasTriedIsActive1 = true;
+      }
     }
 
     console.log(
@@ -1882,6 +1885,8 @@ export class DCEngine {
     baseTransmissions: string[] | null,
     state: FilterSearchState,
     cache: Map<string, EvaluationResult>,
+    initialRange?: { min: number | null; max: number | null },
+    hasTriedIsActive1: boolean = false,
   ): Promise<CandidateEvaluation[]> {
     const candidates: CandidateEvaluation[] = [];
     const nextDepth = state.depth + 1;
@@ -1934,6 +1939,61 @@ export class DCEngine {
       });
     }
 
+    // If we've exhausted radius and odometer axes, and isActive is still 0,
+    // try isActive = 1 with initial filters (only once)
+    const hasReachedMaxRadius =
+      state.radiusIdx >= LOCATION_RADIUS_PRESET.length - 1;
+    const hasReachedMaxOdometer = !expandedRange;
+    const isStillActiveOnly = state.isActive === 0;
+
+    if (
+      hasReachedMaxRadius &&
+      hasReachedMaxOdometer &&
+      isStillActiveOnly &&
+      !hasTriedIsActive1 &&
+      initialRange
+    ) {
+      // Determine the max value - getNarrowOdometerRange always returns a number for max,
+      // but getInitialOdometerRange can return null
+      const maxValue =
+        initialRange.max !== null && initialRange.max !== undefined
+          ? initialRange.max
+          : DEFAULT_ODOMETER_MAX;
+
+      const activeState: FilterSearchState = {
+        radiusIdx: 0, // Reset to initial radius
+        odometerMin: initialRange.min, // Reset to initial odometer range
+        odometerMax: maxValue,
+        isActive: 1, // Try with all vehicles (including inactive)
+        transmissionsMode: state.transmissionsMode,
+        transmissions: state.transmissions ? [...state.transmissions] : null,
+        cost: state.cost + 10, // Higher cost for isActive = 1 (less preferred)
+        depth: nextDepth,
+      };
+
+      const evaluation = await this.getEvaluation(
+        page,
+        vehicleInfo,
+        baseFilters,
+        baseTransmissions,
+        activeState,
+        cache,
+      );
+      const delta = this.getCountDelta(evaluation.count);
+      candidates.push({
+        state: activeState,
+        evaluation,
+        axis: 'isActive=1',
+        delta,
+        weightedScore: delta * 10, // Higher weight penalty for isActive = 1
+      });
+
+      console.log(
+        `${FILTER_LOG_PREFIX}[Weighted] Exhausted radius and odometer axes. ` +
+          `Trying isActive=1 with initial filters.`,
+      );
+    }
+
     return candidates;
   }
 
@@ -1976,6 +2036,19 @@ export class DCEngine {
     );
   }
 
+  /**
+   * Get the appropriate mileage step based on odometer max value
+   * If odometer_max > 130000, use 15000, otherwise use 7500
+   */
+  private getMileageStep(odometerMax: number | null): number {
+    if (odometerMax === null || odometerMax === undefined) {
+      return MILEAGE_STEP; // Default to 7500 if max is not available
+    }
+    return odometerMax > MILEAGE_STEP_THRESHOLD
+      ? MILEAGE_STEP_HIGH
+      : MILEAGE_STEP;
+  }
+
   private getNarrowOdometerRange(
     vehicleInfo: any,
     baseMin: any,
@@ -1994,14 +2067,18 @@ export class DCEngine {
         ? baseMaxValue - baseMinValue
         : null;
 
+    // Determine mileage step based on target odometer (use as proxy for max)
+    // We'll recalculate with actual max if needed
+    const initialMileageStep = this.getMileageStep(targetOdometer);
+
     let minCandidate =
-      baseWidth !== null && baseWidth <= MILEAGE_STEP * 2
+      baseWidth !== null && baseWidth <= initialMileageStep * 2
         ? baseMinValue
-        : Math.max(targetOdometer - MILEAGE_STEP, 0);
+        : Math.max(targetOdometer - initialMileageStep, 0);
     let maxCandidate =
-      baseWidth !== null && baseWidth <= MILEAGE_STEP * 2
-        ? baseMaxValue ?? targetOdometer + MILEAGE_STEP
-        : Math.min(targetOdometer + MILEAGE_STEP, DEFAULT_ODOMETER_MAX);
+      baseWidth !== null && baseWidth <= initialMileageStep * 2
+        ? baseMaxValue ?? targetOdometer + initialMileageStep
+        : Math.min(targetOdometer + initialMileageStep, DEFAULT_ODOMETER_MAX);
 
     if (
       minCandidate !== null &&
@@ -2009,13 +2086,25 @@ export class DCEngine {
       maxCandidate <= minCandidate
     ) {
       maxCandidate = Math.min(
-        minCandidate + MILEAGE_STEP * 2,
+        minCandidate + initialMileageStep * 2,
         DEFAULT_ODOMETER_MAX,
       );
     }
 
     if (maxCandidate === null || maxCandidate <= 0) {
       maxCandidate = DEFAULT_ODOMETER_MAX;
+    }
+
+    // Recalculate mileage step based on actual max candidate
+    const finalMileageStep = this.getMileageStep(maxCandidate);
+
+    // If the step changed, recalculate with the correct step
+    if (finalMileageStep !== initialMileageStep) {
+      minCandidate = Math.max(targetOdometer - finalMileageStep, 0);
+      maxCandidate = Math.min(
+        targetOdometer + finalMileageStep,
+        DEFAULT_ODOMETER_MAX,
+      );
     }
 
     const normalizedMin = this.normalizeOdometerMin(minCandidate);
@@ -2035,12 +2124,15 @@ export class DCEngine {
       return null;
     }
 
+    // Determine mileage step based on odometer value
+    const mileageStep = this.getMileageStep(odometer);
+
     const minCandidate =
-      odometer - MILEAGE_STEP <= 0 ? null : odometer - MILEAGE_STEP;
+      odometer - mileageStep <= 0 ? null : odometer - mileageStep;
     const maxCandidate =
-      odometer + MILEAGE_STEP >= MAX_ODOMETER_LIMIT
+      odometer + mileageStep >= MAX_ODOMETER_LIMIT
         ? null
-        : odometer + MILEAGE_STEP;
+        : odometer + mileageStep;
 
     return {
       min: this.normalizeOdometerMin(minCandidate),
@@ -2061,12 +2153,15 @@ export class DCEngine {
       return null;
     }
 
+    // Determine mileage step based on current max value
+    const mileageStep = this.getMileageStep(currentMax);
+
     const nextMin =
-      currentMin === null ? null : Math.max(currentMin - MILEAGE_STEP, 0);
+      currentMin === null ? null : Math.max(currentMin - mileageStep, 0);
     const nextMax =
       currentMax >= MAX_ODOMETER_LIMIT
         ? null
-        : Math.min(currentMax + MILEAGE_STEP, MAX_ODOMETER_LIMIT);
+        : Math.min(currentMax + mileageStep, MAX_ODOMETER_LIMIT);
 
     if (nextMin === currentMin && nextMax === currentMax) {
       return null;
@@ -2443,20 +2538,6 @@ export class DCEngine {
         vehicleInfo,
       },
     );
-
-    // Check if no similar vehicles found (if VIN is provided)
-    if (
-      vin &&
-      (marketLookupStats.vehicleCount === 0 ||
-        marketLookupStats.vehicleCount < 1)
-    ) {
-      const inventoryId = vehicleInfo?.entityID || vehicleInfo?.entityId;
-      throw new NoCompFoundError(
-        vin,
-        marketLookupStats.vehicleCount,
-        inventoryId,
-      );
-    }
 
     return marketLookupStats;
   }
