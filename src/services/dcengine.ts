@@ -107,15 +107,13 @@ export class DCEngine {
     try {
       const url = await page.url();
       console.log(url);
-      if (
-        url !== 'https://idsvr.dealercenter.net/authn/authentication/dcWebAuth'
-      ) {
+      if (!url.startsWith('https://auth.dealercenter.net/u/login?')) {
         console.log('Go to the Login Page.');
         await page.goto('https://dmsapp.dealercenter.net/Home/SignIn', {
           waitUntil: 'networkidle2',
         });
       }
-      const loginBtn = await page.$('#login');
+      const loginBtn = await page.$('#auth0-login-widget button[data-action-button-primary="true"]');
       console.log(`loginBtn is `, loginBtn != null);
       if (loginBtn) {
         await Promise.all([
@@ -1534,7 +1532,6 @@ export class DCEngine {
     draftData['vin'] = vin;
     draftData['vehiclePrice '] = 0;
     draftData['accountingAssetTypeId'] = 2;
-
 
     const savedResult = await sendAPIRequest(
       page,
