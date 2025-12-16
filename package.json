@@ -16,6 +16,8 @@
     "test:processQuestionAnswer": "jest src/services/__tests__/processQuestionAnswer.test.ts",
     "test:stringSimilarity": "ts-node src/utils/__tests__/stringSimilarity.test.ts",
     "test:stringSimilarity:compare": "ts-node src/utils/__tests__/stringSimilarityComparison.test.ts",
+    "test:register-vin": "NODE_ENV=development ts-node src/scripts/test-register-vin.ts",
+    "test:login": "NODE_ENV=development ts-node -r tsconfig-paths/register src/scripts/test-login.ts",
     "dev:monitor": "NODE_ENV=development ts-node src/workers/auctionMonitor.ts",
     "dev:dc-sync": "NODE_ENV=development ts-node src/workers/dcSyncWorker.ts",
     "dev:telegram": "NODE_ENV=development ts-node src/workers/telegramWorker.ts",
