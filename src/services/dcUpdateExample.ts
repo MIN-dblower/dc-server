@@ -33,6 +33,7 @@ import { isVinBlocked, getBlockedVinDetails, blockVin } from './blockedVins';
 import { enqueueTelegramMessage } from './telegramQueue';
 import { UncoveredCaseError } from '../errors/uncoveredCaseError';
 import { NoCompFoundError } from '../errors/noCompFoundError';
+import { NoVehicleDataError } from '../errors/noVehicleDataError';
 import { getEmailNotificationService } from './emailNotification';
 import { getAdesaRecordByVin } from '../storage/adesaDb';
 import { getEdgePipelineRecordByVin } from '../storage/db';
@@ -836,6 +837,46 @@ export async function updateDCForAuctionRecord(
       return {
         success: false,
         error: `No comps found: ${error.message}. VIN has been blocked.`,
+      };
+    }
+
+    // If it's a NoVehicleDataError, block the VIN and queue Telegram alert
+    if (error instanceof NoVehicleDataError) {
+      // Try to get inventoryId if not already in error and inventory exists
+      let inventoryId = error.inventoryId;
+      if (!inventoryId && dcEngine && page) {
+        try {
+          const fetchedInventoryId = await dcEngine.getInventoryByVin(
+            page,
+            record.vin,
+          );
+          inventoryId = fetchedInventoryId || undefined;
+        } catch (e) {
+          // Ignore errors when trying to get inventoryId
+        }
+      }
+
+      // Block the VIN
+      await blockVin(
+        record.vin,
+        'MarketDataBuildMatching API returned null',
+        undefined,
+        error.message,
+      );
+
+      // Queue Telegram alert
+      await enqueueTelegramMessage({
+        type: 'system_health',
+        component: 'DC Market Data',
+        status: `No vehicle data returned from MarketDataBuildMatching API for VIN: ${record.vin}${inventoryId ? `. Inventory ID: ${inventoryId}` : ''}`,
+        details: {
+          inventoryId,
+        },
+      });
+
+      return {
+        success: false,
+        error: `No vehicle data: ${error.message}. VIN has been blocked.`,
       };
     }
 

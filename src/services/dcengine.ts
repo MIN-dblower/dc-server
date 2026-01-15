@@ -9,6 +9,7 @@ import { IVehicle } from 'interfaces/vehicle.types';
 import { generateId } from '../utils/auction';
 import { findBestMatch } from '../utils/stringSimilarity';
 import { UncoveredCaseError } from '../errors/uncoveredCaseError';
+import { NoVehicleDataError } from '../errors/noVehicleDataError';
 
 const FILTER_LOG_PREFIX = '[MarketFilters]';
 const LOCATION_RADIUS_PRESET = [
@@ -404,6 +405,12 @@ export class DCEngine {
         },
         { headers: { Authorization: `Bearer ${accessToken}` } },
       );
+      
+      // Check if buildMatchingData is null and throw error
+      if (!buildMatchingData) {
+        throw new NoVehicleDataError(vin, duplicateData.inventoryId);
+      }
+      
       const locationPreset = [
         5,
         10,
@@ -927,6 +934,11 @@ export class DCEngine {
       { headers: { Authorization: `Bearer ${accessToken}` } },
     );
     console.log(buildMatchingData);
+    
+    // Check if buildMatchingData is null and throw error
+    if (!buildMatchingData) {
+      throw new NoVehicleDataError(vin);
+    }
     const initialFilters = {
       bodyStyles: buildMatchingData.optionCollection.bodyStyles.map(
         (el: any) => el.name,
@@ -1388,6 +1400,11 @@ export class DCEngine {
       },
     );
 
+    // Check if buildMatchingData is null and throw error
+    if (!buildMatchingData.optionCollection) {
+      throw new NoVehicleDataError(vin);
+    }
+
     const initialFilters = {
       bodyStyles: buildMatchingData.optionCollection.bodyStyles.map(
         (el: any) => el.name,
@@ -1422,6 +1439,7 @@ export class DCEngine {
       years: [vehicleMeta.year],
       zip: '62298',
     };
+
     const vehicleInfo = {
       entityID: '00000000-0000-0000-0000-000000000000',
       entityTypeID: 3,
@@ -1576,7 +1594,7 @@ export class DCEngine {
     return {
       isCompleted: true,
       error: null,
-      autoSelection: autoSelectionWithInventoryId,
+      autoSelection: autoSelectionWithInventoryId as any,
     };
     // console.log(saveMarketPricingDetail);
   }
