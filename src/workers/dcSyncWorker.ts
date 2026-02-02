@@ -8,6 +8,8 @@ import { BlockedVinError } from '../errors/blockedVinError';
 import { isVinBlocked, getBlockedVinDetails } from '../services/blockedVins';
 import { pauseJobsForBlockedVin, getDCUpdateQueue } from '../services/jobQueue';
 import { enqueueTelegramMessage } from '../services/telegramQueue';
+import { DCUpdateResult } from '../services/dcUpdateInterface';
+import { AdesaRecord } from '../interfaces/adesa.types';
 
 // Initialize environment configuration
 loadEnvConfig();
@@ -60,13 +62,44 @@ async function main(): Promise<void> {
     concurrency: 1,
   });
 
-  worker.on('completed', (job, result) => {
+  worker.on('completed', async (job, result: DCUpdateResult) => {
     console.log(`✅ Job ${job.id} completed`);
     if (result?.pricingSummary) {
       console.log(
         `📊 BullMQ return value for job ${job.id}:`,
         result.pricingSummary,
       );
+    }
+
+    // Enqueue Telegram notification for successful DC sync
+    if (result?.success && result.inventoryId && result.compFilters) {
+      const { record, auctionType } = job.data;
+      // Get auction location based on record type
+      const auctionLocation = 'laneRun' in record 
+        ? (record as AdesaRecord).location 
+        : record.auctionName;
+
+      try {
+        await enqueueTelegramMessage({
+          type: 'dc_sync_completed',
+          vin: record.vin,
+          dcSyncDetails: {
+            inventoryId: result.inventoryId,
+            auctionType,
+            auctionLocation,
+            odometer: record.odometer,
+            compFilters: result.compFilters,
+            pricingSummary: result.pricingSummary ? {
+              marketAveragePrice: result.pricingSummary.marketAveragePrice,
+              askingPrice: result.pricingSummary.askingPrice,
+              appraisalValue: result.pricingSummary.appraisalValue,
+              reconCost: result.pricingSummary.reconCost,
+            } : undefined,
+          },
+        });
+      } catch (telegramError) {
+        console.error(`Failed to enqueue Telegram notification for job ${job.id}:`, telegramError);
+      }
     }
   });
 

@@ -20,11 +20,20 @@ export interface PricingSummary {
   currentAppraisalValue: number;
 }
 
+export interface CompFilters {
+  odometerMin: number | null;
+  odometerMax: number | null;
+  radiusInMiles: number;
+  years?: number[];
+  trims?: string[];
+}
+
 export interface DCUpdateResult {
   success: boolean;
   inventoryId?: string;
   error?: string;
   pricingSummary?: PricingSummary;
+  compFilters?: CompFilters;
 }
 
 /**

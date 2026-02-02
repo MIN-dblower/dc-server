@@ -9,6 +9,7 @@ import { IVehicle } from 'interfaces/vehicle.types';
 import { generateId } from '../utils/auction';
 import { findBestMatch } from '../utils/stringSimilarity';
 import { UncoveredCaseError } from '../errors/uncoveredCaseError';
+import { NoVehicleDataError } from '../errors/noVehicleDataError';
 
 const FILTER_LOG_PREFIX = '[MarketFilters]';
 const LOCATION_RADIUS_PRESET = [
@@ -134,33 +135,35 @@ export class DCEngine {
     await this.login(page);
 
     const url = await page.url();
-    if (url === 'https://idsvr.dealercenter.net/authn/authentication/WebMFA') {
+    if (url.includes('mfa-sms-challenge')) {
       console.log('LOG: Trying to pass MFA');
-      await page.goto(
-        'https://idsvr.dealercenter.net/authn/authentication/WebMFAEmail',
-        {
-          waitUntil: 'networkidle2',
-        },
-      );
+      // Select Mail option
+      await Promise.all([
+        page.waitForNavigation({ waitUntil: 'networkidle0' }),
+        page.click('button[type="submit"][name="action"][value="pick-authenticator"]'),
+      ]);
+
+      await Promise.all([
+        page.waitForNavigation({ waitUntil: 'networkidle0' }),
+        page.click('button[type="submit"][name="action"][value="email::1"]')
+      ]);
+
       const passcode = await fetchOtpWithBackoff(
         'http://localhost:8080/get-otp',
         100,
       );
-      const res = await sendFormRequest(
-        page,
-        'https://idsvr.dealercenter.net/authn/authentication/WebMFAEmail/enter-otp',
-        'POST',
-        {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        {
-          otp: passcode,
-        },
-      );
-      if (res?.redirected) {
-        console.log('LOG: SUCCESSFULLY PASSED MFA');
-        await this.login(page);
-      }
+
+      // fill the input field
+      await page.type('input[name="code"][autocomplete="off"]', passcode ?? ''); // replace '123456' with your actual code
+
+      // click the "Continue" button
+      await Promise.all([
+        page.waitForNavigation({ waitUntil: 'load' }),
+        page.click('button[type="submit"][value="default"]')
+      ]);
+
+      console.log('LOG: SUCCESSFULLY PASSED MFA');
+      await this.login(page);
     }
   }
   setToken(token: string) {
@@ -404,6 +407,12 @@ export class DCEngine {
         },
         { headers: { Authorization: `Bearer ${accessToken}` } },
       );
+
+      // Check if buildMatchingData is null and throw error
+      if (!buildMatchingData) {
+        throw new NoVehicleDataError(vin, duplicateData.inventoryId);
+      }
+
       const locationPreset = [
         5,
         10,
@@ -638,8 +647,8 @@ export class DCEngine {
               prompt.type === 'select'
                 ? filterItems(prompt.items)
                 : prompt.type === 'checkbox'
-                ? prompt.items
-                : [];
+                  ? prompt.items
+                  : [];
             answers.push({
               book: prompt.book,
               isBlank: null,
@@ -658,8 +667,8 @@ export class DCEngine {
               prompt.type === 'select'
                 ? filterItems(prompt.items)
                 : prompt.type === 'checkbox'
-                ? prompt.items
-                : [];
+                  ? prompt.items
+                  : [];
             items.forEach(item => {
               const existItem = exist.addDeduct.find(el => el.code === item.id);
               if (existItem) {
@@ -927,6 +936,11 @@ export class DCEngine {
       { headers: { Authorization: `Bearer ${accessToken}` } },
     );
     console.log(buildMatchingData);
+
+    // Check if buildMatchingData is null and throw error
+    if (!buildMatchingData) {
+      throw new NoVehicleDataError(vin);
+    }
     const initialFilters = {
       bodyStyles: buildMatchingData.optionCollection.bodyStyles.map(
         (el: any) => el.name,
@@ -1388,6 +1402,11 @@ export class DCEngine {
       },
     );
 
+    // Check if buildMatchingData is null and throw error
+    if (!buildMatchingData.optionCollection) {
+      throw new NoVehicleDataError(vin);
+    }
+
     const initialFilters = {
       bodyStyles: buildMatchingData.optionCollection.bodyStyles.map(
         (el: any) => el.name,
@@ -1422,6 +1441,7 @@ export class DCEngine {
       years: [vehicleMeta.year],
       zip: '62298',
     };
+
     const vehicleInfo = {
       entityID: '00000000-0000-0000-0000-000000000000',
       entityTypeID: 3,
@@ -1576,16 +1596,16 @@ export class DCEngine {
     return {
       isCompleted: true,
       error: null,
-      autoSelection: autoSelectionWithInventoryId,
+      autoSelection: autoSelectionWithInventoryId as any,
     };
     // console.log(saveMarketPricingDetail);
   }
   async adjustFilters(page: Page, filters: any, vehicleInfo: any) {
     console.log(
       `${FILTER_LOG_PREFIX} Using weighted strategy, radius=${filters.radiusInMiles}, ` +
-        `odometerRange=${filters.odometerMin ?? 'null'}-${filters.odometerMax ??
-          'null'}, ` +
-        `isActive=${filters.isActive ?? 0}`,
+      `odometerRange=${filters.odometerMin ?? 'null'}-${filters.odometerMax ??
+      'null'}, ` +
+      `isActive=${filters.isActive ?? 0}`,
     );
     return this.adjustFiltersWeighted(page, filters, vehicleInfo);
   }
@@ -1708,7 +1728,7 @@ export class DCEngine {
 
       console.log(
         `${FILTER_LOG_PREFIX}[Weighted] iteration: ${iterations} Moving axis=${nextCandidate.axis} ` +
-          `count=${nextCandidate.evaluation.count} delta=${nextCandidate.delta}`,
+        `count=${nextCandidate.evaluation.count} delta=${nextCandidate.delta}`,
       );
 
       if (
@@ -1741,7 +1761,7 @@ export class DCEngine {
 
     console.log(
       `${FILTER_LOG_PREFIX}[Weighted] Returning closest match (count=${bestResult.evaluation.count}, ` +
-        `delta=${bestResult.delta}).`,
+      `delta=${bestResult.delta}).`,
     );
     return {
       filters: bestResult.evaluation.filters,
@@ -1987,7 +2007,7 @@ export class DCEngine {
 
       console.log(
         `${FILTER_LOG_PREFIX}[Weighted] Exhausted radius and odometer axes. ` +
-          `Trying isActive=1 with initial filters.`,
+        `Trying isActive=1 with initial filters.`,
       );
     }
 
@@ -2024,12 +2044,11 @@ export class DCEngine {
     );
     const delta = this.getCountDelta(count);
     console.log(
-      `${FILTER_LOG_PREFIX}[Weighted] Eval radius=${
-        LOCATION_RADIUS_PRESET[state.radiusIdx]
+      `${FILTER_LOG_PREFIX}[Weighted] Eval radius=${LOCATION_RADIUS_PRESET[state.radiusIdx]
       } ` +
-        `odometer=${displayMin ?? 'null'}-${displayMax} ` +
-        `isActive=${state.isActive} transmissions=${state.transmissionsMode} ` +
-        `cost=${state.cost.toFixed(2)} delta=${delta} count=${count}`,
+      `odometer=${displayMin ?? 'null'}-${displayMax} ` +
+      `isActive=${state.isActive} transmissions=${state.transmissionsMode} ` +
+      `cost=${state.cost.toFixed(2)} delta=${delta} count=${count}`,
     );
   }
 
@@ -2219,11 +2238,11 @@ export class DCEngine {
         const answer: IAnswer = existingAnswer
           ? { ...existingAnswer, modelId: bestMatch.id }
           : {
-              book: question.book,
-              addDeduct: [],
-              modelId: bestMatch.id,
-              isBlank: null,
-            };
+            book: question.book,
+            addDeduct: [],
+            modelId: bestMatch.id,
+            isBlank: null,
+          };
 
         return { answer };
       } else if (
@@ -2242,15 +2261,15 @@ export class DCEngine {
         const answer: IAnswer = existingAnswer
           ? { ...existingAnswer, modelId: selectedTransmission.id }
           : {
-              book: question.book,
-              addDeduct: question.items
-                .map((item: any) => ({
-                  action: item.id === selectedTransmissionId ? 0 : 1,
-                  code: item.id,
-                }))
-                .sort((a, b) => a.code.localeCompare(b.code)),
-              isBlank: null,
-            };
+            book: question.book,
+            addDeduct: question.items
+              .map((item: any) => ({
+                action: item.id === selectedTransmissionId ? 0 : 1,
+                code: item.id,
+              }))
+              .sort((a, b) => a.code.localeCompare(b.code)),
+            isBlank: null,
+          };
 
         // Store metadata about auto selection to notify caller
         const availableOptions = question.items.map((item: any) => ({
@@ -2283,15 +2302,15 @@ export class DCEngine {
         const answer: IAnswer = existingAnswer
           ? { ...existingAnswer, modelId: selectedTransmission.id }
           : {
-              book: question.book,
-              addDeduct: question.items
-                .map((item: any) => ({
-                  action: item.id === selectedTransmissionId ? 0 : 1,
-                  code: item.id,
-                }))
-                .sort((a, b) => a.code.localeCompare(b.code)),
-              isBlank: null,
-            };
+            book: question.book,
+            addDeduct: question.items
+              .map((item: any) => ({
+                action: item.id === selectedTransmissionId ? 0 : 1,
+                code: item.id,
+              }))
+              .sort((a, b) => a.code.localeCompare(b.code)),
+            isBlank: null,
+          };
 
         // Store metadata about auto selection to notify caller
         const availableOptions = question.items.map((item: any) => ({
@@ -2328,21 +2347,21 @@ export class DCEngine {
 
       const answer: IAnswer = existingAnswer
         ? {
-            ...existingAnswer,
-            addDeduct: [...existingAddDeduct, ...newAddDeduct].sort((a, b) =>
-              a.code.localeCompare(b.code),
-            ),
-          }
+          ...existingAnswer,
+          addDeduct: [...existingAddDeduct, ...newAddDeduct].sort((a, b) =>
+            a.code.localeCompare(b.code),
+          ),
+        }
         : {
-            book: question.book,
-            addDeduct: question.items
-              .map((el: any) => ({
-                action: 0,
-                code: el.id,
-              }))
-              .sort((a, b) => a.code.localeCompare(b.code)),
-            isBlank: null,
-          };
+          book: question.book,
+          addDeduct: question.items
+            .map((el: any) => ({
+              action: 0,
+              code: el.id,
+            }))
+            .sort((a, b) => a.code.localeCompare(b.code)),
+          isBlank: null,
+        };
 
       return { answer };
     } else {
@@ -2375,13 +2394,13 @@ export class DCEngine {
     const answers: IAnswer[] = [];
     let autoSelection:
       | {
-          key: string;
-          vin: string;
-          selectedOption: { id: string; name: string };
-          availableOptions: Array<{ id: string; name: string }>;
-          vehicleTrim?: string;
-          inventoryId?: string;
-        }
+        key: string;
+        vin: string;
+        selectedOption: { id: string; name: string };
+        availableOptions: Array<{ id: string; name: string }>;
+        vehicleTrim?: string;
+        inventoryId?: string;
+      }
       | undefined = undefined;
 
     do {
@@ -2471,20 +2490,20 @@ export class DCEngine {
     const questionObj: IQuestion[] =
       question && question.options.length > 0
         ? question.options.map((option: any) => {
-            let key = option.subTitle?.toLowerCase() || '';
-            if (question.title?.toLowerCase() === 'please select trim.') {
-              key = 'trim';
-            }
-            return {
-              book: question.book,
-              key,
-              items: option.items.map((el: any) => ({
-                id: el.id,
-                name: el.displayName,
-              })),
-              type: option.optionType === 1 ? 'checkbox' : 'select',
-            } as IQuestion;
-          })
+          let key = option.subTitle?.toLowerCase() || '';
+          if (question.title?.toLowerCase() === 'please select trim.') {
+            key = 'trim';
+          }
+          return {
+            book: question.book,
+            key,
+            items: option.items.map((el: any) => ({
+              id: el.id,
+              name: el.displayName,
+            })),
+            type: option.optionType === 1 ? 'checkbox' : 'select',
+          } as IQuestion;
+        })
         : [];
 
     return {
