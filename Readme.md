@@ -142,6 +142,11 @@ REDIS_PORT=6379
 REDIS_PASSWORD=
 REDIS_DB=0
 
+# BullMQ Dashboard (optional)
+BULL_BOARD_PORT=3001
+BULL_BOARD_USERNAME=admin
+BULL_BOARD_PASSWORD=your_secure_password
+
 # Telegram Bot (alerts)
 TELEGRAM_BOT_TOKEN=your_bot_token
 TELEGRAM_CHAT_ID=your_chat_id
@@ -277,6 +282,25 @@ import { processAuctionFile } from './services/auctionFileProcessor';
 // Process a file from Google Drive
 const result = await processAuctionFile(fileId, fileName, isGoogleSheet);
 console.log(`New: ${result.newRecords.length}, Updated: ${result.updatedRecords.length}`);
+```
+
+### Job Queue Dashboard
+
+The BullMQ dashboard provides a web interface to monitor and manage job queues. It's available at `http://localhost:3001/admin/queues` (or the port specified by `BULL_BOARD_PORT`).
+
+**Authentication:**
+- The dashboard is protected with Basic HTTP Authentication
+- Set `BULL_BOARD_USERNAME` and `BULL_BOARD_PASSWORD` in your `.env` file
+- If credentials are not set, the dashboard will be unprotected (development only)
+- When accessing the dashboard, your browser will prompt for username and password
+
+**Starting the Dashboard:**
+```bash
+# Development
+npm run dev:dashboard
+
+# Production
+npm run prod:dashboard
 ```
 
 ### PM2 Deployment
