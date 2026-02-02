@@ -34,15 +34,62 @@ import { enqueueTelegramMessage } from './telegramQueue';
 import { UncoveredCaseError } from '../errors/uncoveredCaseError';
 import { NoCompFoundError } from '../errors/noCompFoundError';
 import { NoVehicleDataError } from '../errors/noVehicleDataError';
+import { LoginError } from '../errors/loginError';
 import { getEmailNotificationService } from './emailNotification';
 import { getAdesaRecordByVin } from '../storage/adesaDb';
 import { getEdgePipelineRecordByVin } from '../storage/db';
+
+// Login retry configuration
+const MAX_LOGIN_RETRIES = 3;
+const LOGIN_RETRY_DELAY_MS = 2000; // 2 seconds between retries
 
 /**
  * Determines if a record is an Adesa record
  */
 function isAdesaRecord(record: AuctionRecordUnion): record is AdesaRecord {
   return 'laneRun' in record;
+}
+
+/**
+ * Attempts to login with retry logic
+ * @throws LoginError if all retry attempts fail
+ */
+async function attemptLoginWithRetry(
+  dcEngine: DCEngine,
+  page: Page,
+  vin: string,
+  maxAttempts: number = MAX_LOGIN_RETRIES,
+): Promise<string> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      console.log(`🔄 Login attempt ${attempt}/${maxAttempts} for VIN ${vin}...`);
+      
+      await dcEngine.forceLogin(page);
+      
+      // Try to get token after login
+      const token = await dcEngine.getToken(page);
+      
+      if (token) {
+        console.log(`✅ Login successful on attempt ${attempt}`);
+        return token;
+      } else {
+        throw new Error('Failed to retrieve token after login');
+      }
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      console.error(`❌ Login attempt ${attempt} failed:`, lastError.message);
+      
+      if (attempt < maxAttempts) {
+        console.log(`⏳ Waiting ${LOGIN_RETRY_DELAY_MS}ms before retry...`);
+        await new Promise(resolve => setTimeout(resolve, LOGIN_RETRY_DELAY_MS));
+      }
+    }
+  }
+
+  // All attempts failed - throw LoginError
+  throw new LoginError(vin, maxAttempts, maxAttempts);
 }
 
 /**
@@ -695,31 +742,36 @@ export async function updateDCForAuctionRecord(
     // Get authentication token
     let token = await dcEngine.getToken(page);
 
-    // If no token, attempt to login first
+    // If no token, attempt to login with retry logic
     if (!token) {
-      console.log('🔐 No token found, attempting to login...');
+      console.log('🔐 No token found, attempting to login with retry logic...');
       try {
-        await dcEngine.forceLogin(page);
-        // Try to get token again after login
-        token = await dcEngine.getToken(page);
-        if (!token) {
-          const errorMsg =
-            'Failed to get authentication token after login attempt';
+        token = await attemptLoginWithRetry(dcEngine, page, record.vin, MAX_LOGIN_RETRIES);
+        console.log('✅ Login successful, token obtained');
+      } catch (loginError) {
+        // If it's a LoginError, we've exhausted all retries
+        if (loginError instanceof LoginError) {
+          console.error(`❌ Login failed after ${loginError.attempts} attempts`);
 
-          // Send Telegram alert
+          // Send Telegram alert for login failure after max retries
           await enqueueTelegramMessage({
             type: 'system_health',
             component: 'DC Authentication',
-            status: `Failed to get token after login for VIN: ${record.vin}`,
+            status: `Login failed after ${loginError.maxAttempts} attempts for VIN: ${record.vin}. Last error: ${loginError.message}`,
+            details: {
+              vin: record.vin,
+              attempts: loginError.attempts,
+              maxAttempts: loginError.maxAttempts,
+            },
           });
 
           return {
             success: false,
-            error: errorMsg,
+            error: loginError.message,
           };
         }
-        console.log('✅ Login successful, token obtained');
-      } catch (loginError) {
+
+        // Other login errors
         const errorMessage =
           loginError instanceof Error ? loginError.message : 'Unknown error';
         console.error('❌ Login failed:', loginError);
@@ -877,6 +929,16 @@ export async function updateDCForAuctionRecord(
       return {
         success: false,
         error: `No vehicle data: ${error.message}. VIN has been blocked.`,
+      };
+    }
+
+    // If it's a LoginError, it means login failed after max retries
+    // The error was already handled in the login attempt, but we should still return it
+    if (error instanceof LoginError) {
+      // Telegram message was already sent in attemptLoginWithRetry catch block
+      return {
+        success: false,
+        error: error.message,
       };
     }
 
