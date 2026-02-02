@@ -102,6 +102,35 @@ export async function processTelegramMessage(
         await telegramService.sendMessage(autoSelectionMessage);
         break;
 
+      case 'dc_sync_completed':
+        const dcSyncDetails = job.data.dcSyncDetails;
+        if (!vin || !dcSyncDetails) {
+          throw new Error('Missing required fields for dc_sync_completed notification');
+        }
+        const { compFilters, pricingSummary } = dcSyncDetails;
+        const odometerRange = compFilters.odometerMin !== null && compFilters.odometerMax !== null
+          ? `${compFilters.odometerMin.toLocaleString()} - ${compFilters.odometerMax.toLocaleString()} mi`
+          : 'N/A';
+        
+        const dcSyncMessage = `✅ <b>DC Sync Completed</b>\n\n` +
+          `VIN: <code>${vin}</code>\n` +
+          `Inventory ID: <code>${dcSyncDetails.inventoryId}</code>\n` +
+          `Auction: ${dcSyncDetails.auctionType} - ${dcSyncDetails.auctionLocation}\n` +
+          `Odometer: ${dcSyncDetails.odometer.toLocaleString()} mi\n\n` +
+          `<b>Comp Filters:</b>\n` +
+          `  Odometer Range: ${odometerRange}\n` +
+          `  Radius: ${compFilters.radiusInMiles} mi from auction\n` +
+          (compFilters.years?.length ? `  Years: ${compFilters.years.join(', ')}\n` : '') +
+          (compFilters.trims?.length ? `  Trims: ${compFilters.trims.join(', ')}\n` : '') +
+          (pricingSummary ? `\n<b>Pricing:</b>\n` +
+            `  Market Avg: $${pricingSummary.marketAveragePrice.toLocaleString()}\n` +
+            `  Asking: $${pricingSummary.askingPrice.toLocaleString()}\n` +
+            `  Appraisal: $${pricingSummary.appraisalValue.toLocaleString()}\n` +
+            `  Recon Cost: $${pricingSummary.reconCost.toLocaleString()}\n` : '') +
+          `\nTime: ${new Date().toISOString()}`;
+        await telegramService.sendMessage(dcSyncMessage);
+        break;
+
       default:
         throw new Error(`Unknown Telegram message type: ${type}`);
     }

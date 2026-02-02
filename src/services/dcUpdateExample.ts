@@ -14,6 +14,7 @@ import {
   AuctionRecordUnion,
   DCUpdateResult,
   PricingSummary,
+  CompFilters,
 } from './dcUpdateInterface';
 import { DCEngine } from './dcengine';
 import { IVehicle } from '../interfaces/vehicle.types';
@@ -201,6 +202,19 @@ function buildPricingSummary(params: {
     buyerFee: params.buyerFee,
     lotFee: params.lotFee,
     currentAppraisalValue: params.currentAppraisalValue,
+  };
+}
+
+/**
+ * Extracts comp filter data from the filters object
+ */
+function extractCompFilters(filters: any): CompFilters {
+  return {
+    odometerMin: filters.odometerMin ?? null,
+    odometerMax: filters.odometerMax ?? null,
+    radiusInMiles: filters.radiusInMiles ?? 0,
+    years: filters.years ?? [],
+    trims: filters.trims ?? [],
   };
 }
 
@@ -452,6 +466,7 @@ async function performFullAppraisal(
     success: true,
     inventoryId,
     pricingSummary,
+    compFilters: extractCompFilters(effectiveFilters),
   };
 }
 
@@ -700,6 +715,7 @@ async function updateExistingAppraisal(
     success: true,
     inventoryId,
     pricingSummary,
+    compFilters: extractCompFilters(activeFilters),
   };
 }
 

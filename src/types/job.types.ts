@@ -15,8 +15,30 @@ export interface DCUpdateJobData {
   timestamp: string; // ISO string for easier serialization
 }
 
+export interface CompFilters {
+  odometerMin: number | null;
+  odometerMax: number | null;
+  radiusInMiles: number;
+  years?: number[];
+  trims?: string[];
+}
+
+export interface DCSyncCompletedDetails {
+  inventoryId: string;
+  auctionType: 'Adesa' | 'Edge Pipeline';
+  auctionLocation: string;
+  odometer: number;
+  compFilters: CompFilters;
+  pricingSummary?: {
+    marketAveragePrice: number;
+    askingPrice: number;
+    appraisalValue: number;
+    reconCost: number;
+  };
+}
+
 export interface TelegramMessageJobData {
-  type: 'uncovered_case' | 'blocked_vin_attempt' | 'job_failure' | 'queue_backup' | 'system_health' | 'auto_selection_mode';
+  type: 'uncovered_case' | 'blocked_vin_attempt' | 'job_failure' | 'queue_backup' | 'system_health' | 'auto_selection_mode' | 'dc_sync_completed';
   vin?: string;
   question?: any;
   vehicleTrim?: string;
@@ -27,6 +49,7 @@ export interface TelegramMessageJobData {
   component?: string;
   status?: string;
   details?: any;
+  dcSyncDetails?: DCSyncCompletedDetails;
 }
 
 export interface JobStatusSummary {
