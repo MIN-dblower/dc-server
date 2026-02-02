@@ -2,19 +2,24 @@ import { google, drive_v3, sheets_v4 } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
 import * as fs from 'fs';
 import * as path from 'path';
+import {
+  getGoogleOAuthToken,
+  updateGoogleAccessToken,
+} from '../storage/googleAuthDb';
 
 const SCOPES = [
   'https://www.googleapis.com/auth/drive.readonly',
   'https://www.googleapis.com/auth/spreadsheets.readonly',
 ];
 
+const GOOGLE_DRIVE_SERVICE_NAME = 'google_drive';
+const TOKEN_EXPIRY_BUFFER_MS = 60 * 1000;
+
 type DriveFile = Pick<
   drive_v3.Schema$File,
   'id' | 'name' | 'mimeType' | 'modifiedTime' | 'size' | 'webViewLink'
 >;
 
-// Cache the OAuth client to avoid creating multiple instances
-// which can cause token refresh conflicts
 let cachedOAuthClient: OAuth2Client | null = null;
 
 function getEnvVar(key: string): string {
@@ -25,37 +30,72 @@ function getEnvVar(key: string): string {
   return value;
 }
 
-function getOAuthClient(): OAuth2Client {
-  // Return cached client if it exists
-  if (cachedOAuthClient) {
-    return cachedOAuthClient;
-  }
+function isAccessTokenExpired(expiresAt: Date | null | undefined): boolean {
+  if (!expiresAt) return true;
+  return Date.now() >= expiresAt.getTime() - TOKEN_EXPIRY_BUFFER_MS;
+}
 
+async function getOAuthClient(): Promise<OAuth2Client> {
   const clientId = getEnvVar('GOOGLE_OAUTH_CLIENT_ID');
   const clientSecret = getEnvVar('GOOGLE_OAUTH_CLIENT_SECRET');
   const redirectUri = getEnvVar('GOOGLE_OAUTH_REDIRECT_URI');
-  const refreshToken = getEnvVar('GOOGLE_OAUTH_REFRESH_TOKEN');
 
-  const oAuth2Client = new google.auth.OAuth2(
-    clientId,
-    clientSecret,
-    redirectUri
-  );
-  oAuth2Client.setCredentials({ refresh_token: refreshToken });
+  const tokenData = await getGoogleOAuthToken(GOOGLE_DRIVE_SERVICE_NAME);
+  if (!tokenData?.refreshToken) {
+    throw new Error(
+      'No Google OAuth token in database. Run: npx ts-node src/scripts/get-google-oauth-tokens.ts'
+    );
+  }
 
-  // Cache the client for reuse
-  cachedOAuthClient = oAuth2Client;
+  if (!cachedOAuthClient) {
+    cachedOAuthClient = new google.auth.OAuth2(
+      clientId,
+      clientSecret,
+      redirectUri
+    );
+  }
 
-  return oAuth2Client;
+  const credentials: Record<string, unknown> = {
+    refresh_token: tokenData.refreshToken,
+  };
+  if (tokenData.accessToken) {
+    credentials.access_token = tokenData.accessToken;
+    if (tokenData.expiresAt) {
+      credentials.expiry_date = tokenData.expiresAt.getTime();
+    }
+  }
+  cachedOAuthClient.setCredentials(credentials);
+
+  if (isAccessTokenExpired(tokenData.expiresAt)) {
+    const { credentials: newCreds } =
+      await cachedOAuthClient.refreshAccessToken();
+    const newAccessToken = newCreds.access_token;
+    const newExpiry = newCreds.expiry_date
+      ? new Date(newCreds.expiry_date)
+      : undefined;
+    if (newAccessToken) {
+      await updateGoogleAccessToken(
+        GOOGLE_DRIVE_SERVICE_NAME,
+        newAccessToken,
+        newExpiry
+      );
+      cachedOAuthClient.setCredentials({
+        refresh_token: tokenData.refreshToken,
+        access_token: newAccessToken,
+        expiry_date: newCreds.expiry_date,
+      });
+    }
+  }
+
+  return cachedOAuthClient;
+}
+
+export async function ensureGoogleDriveAuth(): Promise<OAuth2Client> {
+  return getOAuthClient();
 }
 
 async function getDriveClient(): Promise<drive_v3.Drive> {
-  const auth = getOAuthClient();
-  
-  // The googleapis library will automatically handle token refresh
-  // when making API calls, so we don't need to call getAccessToken() here
-  // This avoids potential conflicts during token refresh
-  
+  const auth = await getOAuthClient();
   return google.drive({ version: 'v3', auth });
 }
 
@@ -63,12 +103,7 @@ async function getDriveClient(): Promise<drive_v3.Drive> {
  * Gets a Google Sheets API client
  */
 async function getSheetsClient(): Promise<sheets_v4.Sheets> {
-  const auth = getOAuthClient();
-  
-  // The googleapis library will automatically handle token refresh
-  // when making API calls, so we don't need to call getAccessToken() here
-  // This avoids potential conflicts during token refresh
-  
+  const auth = await getOAuthClient();
   return google.sheets({ version: 'v4', auth });
 }
 

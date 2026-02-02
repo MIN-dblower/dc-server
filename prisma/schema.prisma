@@ -62,3 +62,16 @@ model AdesaAuctionRecord {
 
   @@map("AdesaAuctionRecord")
 }
+
+model GoogleOAuthToken {
+  id           String   @id @default(uuid())
+  serviceName  String   @unique // e.g., "google_drive" - allows multiple services
+  refreshToken String
+  accessToken  String?
+  expiresAt    DateTime?
+  scope        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("GoogleOAuthToken")
+}

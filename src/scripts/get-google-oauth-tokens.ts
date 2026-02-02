@@ -1,9 +1,11 @@
 import { google } from 'googleapis';
 import * as readline from 'readline';
 import { loadEnvConfig } from '../config/env.config';
+import { saveGoogleOAuthToken } from '../storage/googleAuthDb';
 
-// Initialize environment configuration
 loadEnvConfig();
+
+const GOOGLE_DRIVE_SERVICE_NAME = 'google_drive';
 
 /**
  * OAuth 2.0 Authorization Script for Google Drive API
@@ -226,29 +228,31 @@ async function main(): Promise<void> {
       console.error('Then run this script again.\n');
     }
 
-    console.log('✅ Successfully obtained tokens!\n');
-    console.log('=== Add these to your .env file ===\n');
-    console.log(`GOOGLE_OAUTH_REFRESH_TOKEN=${tokens.refresh_token || 'NOT_PROVIDED'}\n`);
+    if (!tokens.refresh_token) {
+      console.error('\n⚠️  No refresh token received. Cannot save to database.');
+      process.exitCode = 1;
+      return;
+    }
 
+    const expiresAt = tokens.expiry_date
+      ? new Date(tokens.expiry_date)
+      : null;
+
+    await saveGoogleOAuthToken({
+      serviceName: GOOGLE_DRIVE_SERVICE_NAME,
+      refreshToken: tokens.refresh_token,
+      accessToken: tokens.access_token ?? null,
+      expiresAt,
+      scope: SCOPES.join(' '),
+    });
+
+    console.log('✅ Successfully obtained tokens and saved to database.\n');
+    console.log(`   Service: ${GOOGLE_DRIVE_SERVICE_NAME}`);
     if (tokens.access_token) {
-      console.log('Access token (for testing):');
-      console.log(tokens.access_token.substring(0, 20) + '...\n');
+      console.log('   Access token: stored');
+      if (expiresAt) console.log(`   Expires at: ${expiresAt.toISOString()}`);
     }
-
-    if (tokens.refresh_token) {
-      console.log('✅ Refresh token obtained! Save it to your .env file.\n');
-      console.log('📝 Important notes about refresh tokens:');
-      console.log('   - Refresh tokens can expire if:');
-      console.log('     • Not used for 6 months');
-      console.log('     • User revokes access');
-      console.log('     • User changes password (for Gmail scopes)');
-      console.log('     • Maximum of 100 refresh tokens per Google Account per OAuth client');
-      console.log('   - Handle token refresh errors gracefully in your application');
-      console.log('   - Reference: https://developers.google.com/identity/protocols/oauth2#5.-refresh-the-access-token,-if-necessary\n');
-    } else {
-      console.log('⚠️  No refresh token - you may need to revoke and re-authorize.\n');
-      console.log('   Revoke access at: https://myaccount.google.com/permissions\n');
-    }
+    console.log('   Refresh token: stored\n');
   } catch (error) {
     console.error('\n❌ Failed to obtain OAuth tokens\n');
     if (error instanceof Error) {

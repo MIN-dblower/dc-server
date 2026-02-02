@@ -5,7 +5,7 @@ import {
   AuctionType,
   DEFAULT_TIME_ZONE,
 } from './auctionSchedule';
-import { findFileByName, listFilesInFolder } from './googledrive';
+import { findFileByName, ensureGoogleDriveAuth } from './googledrive';
 import { processAuctionFile } from './auctionFileProcessor';
 import { processAdesaFile } from './adesaFileProcessor';
 
@@ -156,6 +156,13 @@ export class AuctionMonitor {
     console.log(
       `\n🔍 Running monitoring check at ${now.toISO()} (${DEFAULT_TIME_ZONE})`,
     );
+
+    try {
+      await ensureGoogleDriveAuth();
+    } catch (err) {
+      console.error('Google Drive auth failed (token missing or refresh failed):', err instanceof Error ? err.message : err);
+      return;
+    }
 
     const activeWindows = getActiveMonitoringWindows(now.toJSDate());
 
