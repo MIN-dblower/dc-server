@@ -49,6 +49,8 @@ async function main(): Promise<void> {
       year: TEST_YEAR,
       trim: TEST_TRIM,
       transmission: TEST_TRANSMISSION,
+      color: "White",
+      grade: 4.6
     };
 
     console.log('Starting completeVehicleBuild...');

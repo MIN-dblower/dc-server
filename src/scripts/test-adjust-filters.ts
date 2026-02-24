@@ -33,6 +33,8 @@ async function buildMarketFilterForUnregisteredVin(
     year: TEST_YEAR,
     trim: TEST_TRIM,
     transmission: '',
+    color: "White",
+    grade: 4.6
   };
   const { vehicleBuilds } = await dcEngine.completeVehicleBuild(
     page,

@@ -13,6 +13,8 @@ const TEST_VEHICLE: IVehicle = {
   trim: 'LT Trail Boss',
   odometer: 22715,
   transmission: '',
+  color: "White",
+  grade: 4.6
 };
 
 async function main(): Promise<void> {

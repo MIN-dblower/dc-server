@@ -19,7 +19,7 @@
     "test:register-vin": "NODE_ENV=development ts-node src/scripts/test-register-vin.ts",
     "test:login": "NODE_ENV=development ts-node -r tsconfig-paths/register src/scripts/test-login.ts",
     "dev:monitor": "NODE_ENV=development ts-node src/workers/auctionMonitor.ts",
-    "dev:dc-sync": "NODE_ENV=development ts-node src/workers/dcSyncWorker.ts",
+    "dev:dc-sync": "NODE_ENV=development ts-node -r tsconfig-paths/register src/workers/dcSyncWorker.ts",
     "dev:telegram": "NODE_ENV=development ts-node src/workers/telegramWorker.ts",
     "dev:start": "npm-run-all --parallel dev:monitor dev:dc-sync dev:telegram",
     "dev:dashboard": "NODE_ENV=development ts-node src/workers/queueDashboard.ts",

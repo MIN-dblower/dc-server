@@ -12,6 +12,7 @@ import { isVinBlocked, getBlockedVinDetails } from './blockedVins';
 import { pauseJobsForBlockedVin } from './jobQueue';
 import { enqueueTelegramMessage } from './telegramQueue';
 import { BlockedVinError } from '../errors/blockedVinError';
+import { toTitleCase } from '@utils/string';
 
 function isAdesaRecord(record: AdesaRecord | EdgePipelineRecord): record is AdesaRecord {
   return (record as AdesaRecord).laneRun !== undefined;
@@ -21,6 +22,11 @@ export async function processDCUpdateJob(
   job: Job<DCUpdateJobData>,
 ): Promise<DCUpdateResult> {
   const { record, isNewRecord } = job.data;
+  if (isAdesaRecord(record)) {
+    record.exteriorColor = toTitleCase(record.exteriorColor);
+  } else {
+    record.color = toTitleCase(record.color);
+  }
 
   console.log(`\n⚙️  Processing DC job ${job.id} for VIN ${record.vin}`);
 
