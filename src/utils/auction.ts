@@ -1,3 +1,7 @@
+import { AdesaRecord } from '@interfaces/adesa.types';
+import { IVehicle } from '@interfaces/vehicle.types';
+import { EdgePipelineRecord } from '@prisma/client';
+import { AuctionRecordUnion } from '@services/dcUpdateInterface';
 import crypto from 'crypto';
 
 type MarginRange = {
@@ -141,4 +145,30 @@ export function generateId(): string {
     12,
     16,
   )}-${hex.substring(16, 20)}-${hex.substring(20)}`;
+}
+
+
+export function isAdesaRecord(record: AuctionRecordUnion): record is AdesaRecord {
+  return 'laneRun' in record;
+}
+
+
+/**
+ * Converts an auction record to IVehicle format
+ */
+export function recordToVehicle(record: AuctionRecordUnion): IVehicle {
+  return {
+    vin: record.vin,
+    make: record.make,
+    model: record.model,
+    year: record.year,
+    odometer: record.odometer,
+    grade: record.grade,
+    color: isAdesaRecord(record) ?
+      record.exteriorColor : record.color,
+    trim: isAdesaRecord(record)
+      ? record.trim || ''
+      : (record as EdgePipelineRecord).style || '',
+    transmission: isAdesaRecord(record) ? record.transmission || '' : '', // Edge Pipeline doesn't have transmission, empty string triggers random selection
+  };
 }

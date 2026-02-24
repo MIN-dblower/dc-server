@@ -6,4 +6,6 @@ export interface IVehicle {
   odometer: number;
   trim: string;
   transmission: string; // Empty string means transmission should be selected randomly
+  grade: number;
+  color: string;
 }

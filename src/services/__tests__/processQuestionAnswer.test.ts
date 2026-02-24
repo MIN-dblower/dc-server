@@ -63,6 +63,9 @@ const testCases: TestCase[] = [
       odometer: 10000,
       trim: '320i xDrive',
       transmission: '',
+      color: "White",
+      grade: 4.6
+
     },
     expected: {
       answer: {
@@ -92,6 +95,8 @@ const testCases: TestCase[] = [
       odometer: 10000,
       trim: '320i xDrive',
       transmission: '',
+      color: "White",
+      grade: 4.6
     },
     existingAnswer: {
       book: 4,
@@ -123,7 +128,8 @@ const testCases: TestCase[] = [
       year: 2020,
       odometer: 20000,
       trim: '',
-      transmission: '',
+      transmission: '', color: "White",
+      grade: 4.6
     },
     expected: {
       answer: {
@@ -155,6 +161,8 @@ const testCases: TestCase[] = [
       odometer: 5000,
       trim: 'Premium',
       transmission: '', // Empty - should trigger random selection
+      color: "White",
+      grade: 4.6
     },
     expected: {
       // Transmission selection is random, so we use customAssertions
@@ -202,6 +210,8 @@ const testCases: TestCase[] = [
       odometer: 5000,
       trim: 'SV',
       transmission: '   ', // Whitespace only
+      color: "White",
+      grade: 4.6
     },
     expected: {
       transmissionSelection: {
@@ -234,6 +244,8 @@ const testCases: TestCase[] = [
       odometer: 5000,
       trim: 'Premium',
       transmission: '',
+      color: "White",
+      grade: 4.6
     },
     existingAnswer: {
       book: 1,
@@ -278,6 +290,8 @@ const testCases: TestCase[] = [
       odometer: 1000,
       trim: 'LE',
       transmission: 'CVT', // Has transmission - should throw error
+      color: "White",
+      grade: 4.6
     },
     expected: {
       shouldThrow: true,
@@ -306,6 +320,8 @@ const testCases: TestCase[] = [
       odometer: 3000,
       trim: 'AMG',
       transmission: 'Auto',
+      color: "White",
+      grade: 4.6
     },
     expected: {
       answer: {
@@ -338,6 +354,8 @@ const testCases: TestCase[] = [
       odometer: 3000,
       trim: 'AMG',
       transmission: 'Auto',
+      color: "White",
+      grade: 4.6
     },
     existingAnswer: {
       book: 2,
@@ -380,6 +398,8 @@ const testCases: TestCase[] = [
       odometer: 3000,
       trim: 'AMG',
       transmission: 'Auto',
+      color: "White",
+      grade: 4.6
     },
     existingAnswer: {
       book: 2,
@@ -418,6 +438,8 @@ const testCases: TestCase[] = [
       odometer: 1000,
       trim: 'LE',
       transmission: 'CVT',
+      color: "White",
+      grade: 4.6
     },
     expected: {
       shouldThrow: true,
@@ -440,6 +462,8 @@ const testCases: TestCase[] = [
       odometer: 1000,
       trim: 'LE',
       transmission: 'CVT',
+      color: "White",
+      grade: 4.6
     },
     expected: {
       shouldThrow: true,
@@ -462,6 +486,8 @@ const testCases: TestCase[] = [
       odometer: 1000,
       trim: 'LE',
       transmission: 'CVT',
+      color: "White",
+      grade: 4.6
     },
     expected: {
       shouldThrow: true,
@@ -486,6 +512,8 @@ const testCases: TestCase[] = [
       odometer: 15000,
       trim: 'XLT',
       transmission: 'Auto',
+      color: "White",
+      grade: 4.6
     },
     expected: {
       answer: {

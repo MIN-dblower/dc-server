@@ -1345,8 +1345,8 @@ export class DCEngine {
         vehicleBuilds: [
           {
             region: 'NA',
-            color: 'Black',
-            grade: 43,
+            color: vehicle.color,
+            grade: vehicle.grade * 10,
             bookType: 4,
             vehicleBuildDTO: manheimBuildData,
           },
@@ -2573,8 +2573,7 @@ export class DCEngine {
   }
   async getInventoryValuation(
     page: Page,
-    vin: string,
-    odometer: number,
+    vehicle: IVehicle,
     vehicleMeta: any,
     vehicleBuilds: any,
   ) {
@@ -2596,9 +2595,9 @@ export class DCEngine {
       'POST',
       { Authorization: `Bearer ${accessToken}` },
       {
-        vin: vin,
+        vin: vehicle.vin,
         method: 1,
-        odometer: odometer,
+        odometer: vehicle.odometer,
         vehicleType: 1,
         isTitleBrandCommercial: false,
         hasExistingNadaBooked: true,
@@ -2641,8 +2640,8 @@ export class DCEngine {
           },
           {
             region: 'NA',
-            color: 'Black',
-            grade: 43,
+            color: vehicle.color,
+            grade: vehicle.grade * 10,
             bookType: 4,
             vehicleBuildDTO: manheimBuildData,
           },

@@ -26,6 +26,7 @@ import {
   getPriceByMileage,
   getRank,
   getSumOfNumbersInDollars,
+  recordToVehicle,
 } from '../utils/auction';
 import { AdesaRecord } from '../interfaces/adesa.types';
 import { EdgePipelineRecord } from '../interfaces/edgePipeline.types';
@@ -66,12 +67,12 @@ async function attemptLoginWithRetry(
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       console.log(`🔄 Login attempt ${attempt}/${maxAttempts} for VIN ${vin}...`);
-      
+
       await dcEngine.forceLogin(page);
-      
+
       // Try to get token after login
       const token = await dcEngine.getToken(page);
-      
+
       if (token) {
         console.log(`✅ Login successful on attempt ${attempt}`);
         return token;
@@ -81,7 +82,7 @@ async function attemptLoginWithRetry(
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
       console.error(`❌ Login attempt ${attempt} failed:`, lastError.message);
-      
+
       if (attempt < maxAttempts) {
         console.log(`⏳ Waiting ${LOGIN_RETRY_DELAY_MS}ms before retry...`);
         await new Promise(resolve => setTimeout(resolve, LOGIN_RETRY_DELAY_MS));
@@ -103,31 +104,19 @@ function getNotes(record: AuctionRecordUnion): string {
   return (record as EdgePipelineRecord).watchNotes || '';
 }
 
-/**
- * Converts an auction record to IVehicle format
- */
-function recordToVehicle(record: AuctionRecordUnion): IVehicle {
-  return {
-    vin: record.vin,
-    make: record.make,
-    model: record.model,
-    year: record.year,
-    odometer: record.odometer,
-    trim: isAdesaRecord(record)
-      ? record.trim || ''
-      : (record as EdgePipelineRecord).style || '',
-    transmission: isAdesaRecord(record) ? record.transmission || '' : '', // Edge Pipeline doesn't have transmission, empty string triggers random selection
-  };
-}
 
 interface PrimaryKeySnapshot {
   odometer: number | null;
   note: string;
+  grade: number;
+  color: string;
 }
 
 interface PrimaryKeyChangeContext {
   odometerChanged: boolean;
   notesChanged: boolean;
+  gradeChanged: boolean;
+  colorChanged: boolean;
 }
 
 async function getPreviousPrimaryKeySnapshot(
@@ -141,6 +130,8 @@ async function getPreviousPrimaryKeySnapshot(
     return {
       odometer: existing.odometer ?? null,
       note: existing.notes || '',
+      grade: existing.grade,
+      color: existing.exteriorColor,
     };
   }
 
@@ -152,6 +143,8 @@ async function getPreviousPrimaryKeySnapshot(
   return {
     odometer: existing.odometer ?? null,
     note: existing.watchNotes || '',
+    grade: existing.grade,
+    color: existing.color,
   };
 }
 
@@ -167,6 +160,8 @@ async function determinePrimaryKeyChanges(
     const defaultContext = {
       odometerChanged: true,
       notesChanged: true,
+      gradeChanged: true,
+      colorChanged: true,
     };
     console.log(
       `Primary key change context for VIN ${record.vin}:`,
@@ -178,6 +173,9 @@ async function determinePrimaryKeyChanges(
   const context = {
     odometerChanged: snapshot.odometer !== record.odometer,
     notesChanged: snapshot.note !== (currentNote || ''),
+    gradeChanged: snapshot.grade !== record.grade,
+    colorChanged: snapshot.color !== (isAdesaRecord(record) ?
+      record.exteriorColor : record.color)
   };
   console.log(`Primary key change context for VIN ${record.vin}:`, context);
   return context;
@@ -250,17 +248,15 @@ async function performFullAppraisal(
         autoSelection.key === 'transmission'
           ? 'Transmission'
           : autoSelection.key === 'trim'
-          ? 'Trim'
-          : autoSelection.key.charAt(0).toUpperCase() +
+            ? 'Trim'
+            : autoSelection.key.charAt(0).toUpperCase() +
             autoSelection.key.slice(1);
 
       console.log(
-        `⚠️  ${selectionType} auto-selected for Edge Pipeline vehicle VIN ${
-          autoSelection.vin
-        }: ${autoSelection.selectedOption.name}${
-          autoSelection.inventoryId
-            ? ` (Inventory ID: ${autoSelection.inventoryId})`
-            : ''
+        `⚠️  ${selectionType} auto-selected for Edge Pipeline vehicle VIN ${autoSelection.vin
+        }: ${autoSelection.selectedOption.name}${autoSelection.inventoryId
+          ? ` (Inventory ID: ${autoSelection.inventoryId})`
+          : ''
         }`,
       );
 
@@ -483,14 +479,14 @@ async function updateExistingAppraisal(
   type: 'Adesa' | 'Edge Pipeline',
   changeContext: PrimaryKeyChangeContext,
 ): Promise<DCUpdateResult> {
-  const { odometerChanged, notesChanged } = changeContext;
+  const { odometerChanged, notesChanged, colorChanged, gradeChanged } = changeContext;
   const updateMode = odometerChanged
     ? notesChanged
       ? 'odometer_and_notes'
       : 'odometer_only'
     : notesChanged
-    ? 'notes_only'
-    : 'no_primary_change';
+      ? 'notes_only'
+      : 'no_primary_change';
 
   console.log(
     `Updating existing appraisal for VIN: ${record.vin}, Inventory ID: ${inventoryId}`,
@@ -519,15 +515,10 @@ async function updateExistingAppraisal(
 
   let activeFilters = filters;
   let valuation: any | null = null;
+  const vehicle = recordToVehicle(record);
+  
 
-  if (odometerChanged) {
-    updatedVehicleInfo.odometer = record.odometer;
-    const { filters: adjustedFilters } = await dcEngine.adjustFilters(
-      page,
-      filters,
-      updatedVehicleInfo,
-    );
-    activeFilters = adjustedFilters || filters;
+  if (odometerChanged || gradeChanged || colorChanged) {
 
     const kbbBuild = inventoryDetail.vehicleBuilds.find(
       (el: any) => el.bookServiceTypeId === 1,
@@ -546,11 +537,20 @@ async function updateExistingAppraisal(
 
     valuation = await dcEngine.getInventoryValuation(
       page,
-      record.vin,
-      record.odometer,
+      vehicle,
       vehicleMeta,
       inventoryDetail.vehicleBuilds,
     );
+
+    updatedVehicleInfo.odometer = record.odometer;
+    const { filters: adjustedFilters } = await dcEngine.adjustFilters(
+      page,
+      filters,
+      updatedVehicleInfo,
+    );
+    activeFilters = adjustedFilters || filters;
+
+   
   }
 
   const {
@@ -621,12 +621,17 @@ async function updateExistingAppraisal(
 
   const vehicleBuildsToPersist = odometerChanged
     ? [
-        valuation?.kelleyBuild,
-        valuation?.nadaBuild,
-        valuation?.blackBookBuild,
-        valuation?.manheimBuild,
-      ].filter(Boolean)
+      valuation?.kelleyBuild,
+      valuation?.nadaBuild,
+      valuation?.blackBookBuild,
+      valuation?.manheimBuild,
+    ].filter(Boolean)
     : inventoryDetail.vehicleBuilds;
+
+
+  if (colorChanged || gradeChanged || valuation?.manheimBuild) {
+    vehicleBuildsToPersist[3] = valuation?.manheimBuild
+  }
 
   if (
     odometerChanged &&
@@ -641,6 +646,7 @@ async function updateExistingAppraisal(
     ...inventoryDetail,
     vehicleBuilds: vehicleBuildsToPersist,
     totalAdditionalFees: additionalFee,
+    exteriorColor: vehicle.color,
     lotFee,
     buyersFee: buyerFee,
     totalCost: additionalFee,
@@ -894,9 +900,8 @@ export async function updateDCForAuctionRecord(
       await enqueueTelegramMessage({
         type: 'system_health',
         component: 'DC Market Price',
-        status: `No comps found for VIN: ${record.vin}. Vehicle count: ${
-          error.vehicleCount
-        }${inventoryId ? `. Inventory ID: ${inventoryId}` : ''}`,
+        status: `No comps found for VIN: ${record.vin}. Vehicle count: ${error.vehicleCount
+          }${inventoryId ? `. Inventory ID: ${inventoryId}` : ''}`,
         details: {
           inventoryId,
         },
