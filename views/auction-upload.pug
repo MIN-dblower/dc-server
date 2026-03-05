@@ -1,0 +1,420 @@
+doctype html
+html(lang="en")
+  head
+    meta(charset="UTF-8")
+    title Auction CSV Upload
+    meta(name="viewport", content="width=device-width, initial-scale=1")
+    style.
+      :root {
+        --bg: #050816;
+        --card-bg: #0b1020;
+        --accent: #22c55e;
+        --accent-soft: rgba(34, 197, 94, 0.12);
+        --border: rgba(148, 163, 184, 0.25);
+        --text: #e5e7eb;
+        --muted: #9ca3af;
+        --error: #f97373;
+        --shadow-soft: 0 22px 45px rgba(15, 23, 42, 0.85);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 32px 16px;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, 'SF Pro Text',
+          'Segoe UI', sans-serif;
+        background: radial-gradient(circle at top left, #1d293b 0, #020617 45%, #000 100%);
+        color: var(--text);
+      }
+
+      .shell {
+        width: 100%;
+        max-width: 720px;
+        background: radial-gradient(circle at top, rgba(34, 197, 94, 0.1), transparent 60%),
+          rgba(15, 23, 42, 0.96);
+        border-radius: 24px;
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow-soft);
+        padding: 20px 22px;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .shell::before {
+        content: '';
+        position: absolute;
+        inset: -40%;
+        background:
+          radial-gradient(circle at 0 0, transparent 0, transparent 42%, rgba(125, 211, 252, 0.12) 55%, transparent 70%),
+          radial-gradient(circle at 100% 100%, transparent 0, transparent 45%, rgba(34, 197, 94, 0.16) 60%, transparent 75%);
+        opacity: 0.6;
+        mix-blend-mode: screen;
+        pointer-events: none;
+      }
+
+      .inner {
+        position: relative;
+        z-index: 1;
+        backdrop-filter: blur(18px);
+      }
+
+      .header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 18px;
+      }
+
+      .title-stack {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.18em;
+        color: var(--muted);
+      }
+
+      .eyebrow-pill {
+        width: 6px;
+        height: 6px;
+        border-radius: 999px;
+        background: var(--accent);
+        box-shadow: 0 0 0 6px var(--accent-soft);
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 22px;
+        font-weight: 600;
+        letter-spacing: 0.03em;
+        color: var(--text);
+      }
+
+      .header-subtitle {
+        margin: 2px 0 0 0;
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      .badge-cluster {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        justify-content: flex-end;
+      }
+
+      .badge {
+        padding: 4px 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(148, 163, 184, 0.35);
+        font-size: 11px;
+        color: var(--muted);
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: rgba(15, 23, 42, 0.8);
+      }
+
+      .badge-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 999px;
+        background: rgba(148, 163, 184, 0.8);
+      }
+
+      .badge-dot--green {
+        background: var(--accent);
+      }
+
+      .panel {
+        background: radial-gradient(circle at top left, rgba(34, 197, 94, 0.12), transparent 55%),
+          rgba(15, 23, 42, 0.9);
+        border-radius: 18px;
+        border: 1px solid rgba(148, 163, 184, 0.35);
+        padding: 18px 18px 16px 18px;
+        box-shadow: 0 18px 36px rgba(15, 23, 42, 0.9);
+      }
+
+      .panel-header {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: baseline;
+        margin-bottom: 14px;
+      }
+
+      .panel-title {
+        font-size: 14px;
+        font-weight: 500;
+        color: #e5e7eb;
+      }
+
+      .panel-caption {
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .hint {
+        font-size: 11px;
+        color: var(--muted);
+        margin-top: 6px;
+      }
+
+      form {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 7px;
+      }
+
+      label {
+        font-size: 12px;
+        font-weight: 500;
+        color: #e5e7eb;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .file-input-wrapper {
+        position: relative;
+        border-radius: 14px;
+        border: 1px dashed rgba(148, 163, 184, 0.6);
+        background: radial-gradient(circle at top left, rgba(34, 197, 94, 0.08), transparent 55%),
+          rgba(15, 23, 42, 0.75);
+        padding: 14px 14px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        cursor: pointer;
+        transition: border-color 0.18s ease, background 0.18s ease, transform 0.15s ease;
+      }
+
+      .file-input-wrapper:hover {
+        border-color: rgba(74, 222, 128, 0.9);
+        background: radial-gradient(circle at top left, rgba(34, 197, 94, 0.14), transparent 55%),
+          rgba(15, 23, 42, 0.9);
+        transform: translateY(-1px);
+      }
+
+      .file-icon {
+        width: 32px;
+        height: 32px;
+        border-radius: 10px;
+        background: linear-gradient(135deg, rgba(34, 197, 94, 0.16), rgba(34, 197, 94, 0.02));
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid rgba(34, 197, 94, 0.8);
+        box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.9), 0 10px 25px rgba(22, 163, 74, 0.4);
+        flex-shrink: 0;
+      }
+
+      .file-icon span {
+        font-size: 14px;
+      }
+
+      .file-copy {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+      }
+
+      .file-title {
+        font-size: 13px;
+        font-weight: 500;
+      }
+
+      .file-subtitle {
+        font-size: 11px;
+        color: var(--muted);
+      }
+
+      .file-input-wrapper input[type="file"] {
+        position: absolute;
+        inset: 0;
+        opacity: 0;
+        cursor: pointer;
+      }
+
+      .footer-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        margin-top: 6px;
+      }
+
+      .footer-meta {
+        font-size: 11px;
+        color: var(--muted);
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+      }
+
+      .footer-meta span strong {
+        color: #e5e7eb;
+      }
+
+      button[type="submit"] {
+        border: none;
+        outline: none;
+        cursor: pointer;
+        border-radius: 999px;
+        padding: 10px 18px;
+        font-size: 13px;
+        font-weight: 500;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: #020617;
+        background: linear-gradient(135deg, #4ade80, #22c55e);
+        box-shadow: 0 14px 35px rgba(16, 185, 129, 0.7);
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        transition: transform 0.15s ease, box-shadow 0.18s ease, filter 0.18s ease;
+      }
+
+      button[type="submit"]:hover {
+        transform: translateY(-1px) translateZ(0);
+        box-shadow: 0 18px 45px rgba(16, 185, 129, 0.8);
+        filter: brightness(1.05);
+      }
+
+      button[type="submit"]:active {
+        transform: translateY(0);
+        box-shadow: 0 10px 28px rgba(16, 185, 129, 0.65);
+        filter: brightness(0.97);
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 9px;
+        border-radius: 999px;
+        font-size: 11px;
+        background: rgba(15, 23, 42, 0.9);
+        border: 1px solid rgba(148, 163, 184, 0.4);
+        color: var(--muted);
+      }
+
+      .pill-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 999px;
+        background: var(--accent);
+      }
+
+      .pill.budget {
+        border-color: rgba(96, 165, 250, 0.6);
+      }
+
+      .pill-dot.budget {
+        background: #60a5fa;
+      }
+
+      @media (max-width: 640px) {
+        .shell {
+          border-radius: 20px;
+          padding: 18px 16px;
+        }
+
+        .header {
+          flex-direction: column;
+          align-items: flex-start;
+        }
+
+        .badge-cluster {
+          justify-content: flex-start;
+        }
+
+        .panel {
+          padding: 16px 14px 14px 14px;
+        }
+
+        .footer-row {
+          flex-direction: column-reverse;
+          align-items: stretch;
+        }
+
+        button[type="submit"] {
+          justify-content: center;
+          width: 100%;
+        }
+      }
+  body
+    .shell
+      .inner
+        header.header
+          .title-stack
+            .eyebrow
+              span.eyebrow-pill
+              | DEALERCENTER · AUCTION INGEST
+            h1 Auction CSV uploader
+            p.header-subtitle
+              | Upload Adesa or Edge Pipeline CSV exports and enqueue DealerCenter jobs.
+          .badge-cluster
+            .badge
+              span.badge-dot.badge-dot--green
+              span Auto-detects auction format
+            .badge
+              span.badge-dot
+              span Queues DC update jobs only when needed
+
+        section.panel
+          .panel-header
+            div
+              .panel-title Upload auction CSV
+              p.panel-caption
+                | We parse the header to distinguish Adesa vs AAA / Edge Pipeline automatically.
+          form(action="/auction-upload" method="post" enctype="multipart/form-data")
+            .field
+              label(for="file") CSV file
+              label.file-input-wrapper
+                .file-icon
+                  span CSV
+                .file-copy
+                  .file-title Drop your file here or click to browse
+                  .file-subtitle
+                    | Supported: Adesa lane runs, AAA / Edge Pipeline exports
+                input#file(type="file" name="file" accept=".csv,text/csv" required)
+              p.hint
+                | The uploader reads only the first header row to detect the auction type, then streams records into the existing DC job queue.
+
+            .footer-row
+              .footer-meta
+                span
+                  strong Tip:
+                  |  One CSV per upload works best. We skip rows without VINs and only enqueue jobs where odometer / notes changed.
+                span
+                  span.pill
+                    span.pill-dot
+                    | Adesa + Edge Pipeline supported
+                  |  
+                  span.pill.budget
+                    span.pill-dot.budget
+                    | Max file size: 10 MB
+              button(type="submit")
+                span Process CSV & queue jobs
+
