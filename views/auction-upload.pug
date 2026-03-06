@@ -381,6 +381,13 @@ html(lang="en")
             .badge
               span.badge-dot
               span Queues DC update jobs only when needed
+            //- Google connection status badge
+            .badge
+              if googleDriveAuth
+                span.badge-dot.badge-dot--green
+              else
+                span.badge-dot(style=`background: var(--error);`)
+              span Google: #{googleDriveAuth ? 'Connected' : 'Disconnected'}
 
         section.panel
           .panel-header
@@ -399,6 +406,9 @@ html(lang="en")
                   .file-subtitle
                     | Supported: Adesa lane runs, AAA / Edge Pipeline exports
                 input#file(type="file" name="file" accept=".csv,text/csv" required)
+                      //- This is what we update when a file is picked
+                p#fileStatus.file-status No file selected
+
               p.hint
                 | The uploader reads only the first header row to detect the auction type, then streams records into the existing DC job queue.
 
@@ -417,4 +427,18 @@ html(lang="en")
                     | Max file size: 10 MB
               button(type="submit")
                 span Process CSV & queue jobs
+  script.
+      const input = document.getElementById('file');
+      const status = document.getElementById('fileStatus');
+
+      input.addEventListener('change', () => {
+        const file = input.files && input.files[0];
+        if (!file) {
+          status.textContent = 'No file selected';
+          status.classList.remove('is-set');
+          return;
+        }
+        status.textContent = `Selected: ${file.name}`;
+        status.classList.add('is-set');
+      });
 

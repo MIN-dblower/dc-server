@@ -11,6 +11,7 @@ import { processAuctionCSVContent } from './services/auctionFileProcessor';
 import { processAdesaCSVContent } from './services/adesaFileProcessor';
 import { getDCUpdateQueue } from './services/jobQueue';
 import { getTelegramQueue } from './services/telegramQueue';
+import { ensureGoogleDriveAuth } from '@services/googledrive';
 
 // Use require to avoid any TypeScript type dependency on multer
 // tslint:disable-next-line:no-var-requires
@@ -119,8 +120,18 @@ function detectAuctionTypeFromHeader(
   return null;
 }
 
-app.get('/auction-upload', (_req, res) => {
-  res.render('auction-upload');
+app.get('/auction-upload', async (_req, res) => {
+  // TODO: add google connection tester data feeding
+
+  let googleDriveAuth = false;
+  try {
+    await ensureGoogleDriveAuth();
+    googleDriveAuth = true;
+  } catch (err) {
+    console.error('Google Drive auth failed (token missing or refresh failed):', err instanceof Error ? err.message : err);
+    googleDriveAuth = false;
+  }
+  res.render('auction-upload', { googleDriveAuth });
 });
 
 app.post(
