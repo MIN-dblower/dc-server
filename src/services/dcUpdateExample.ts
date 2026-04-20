@@ -56,7 +56,7 @@ function isAdesaRecord(record: AuctionRecordUnion): record is AdesaRecord {
  * Attempts to login with retry logic
  * @throws LoginError if all retry attempts fail
  */
-async function attemptLoginWithRetry(
+export async function attemptLoginWithRetry(
   dcEngine: DCEngine,
   page: Page,
   vin: string,

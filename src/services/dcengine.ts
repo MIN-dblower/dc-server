@@ -36,13 +36,13 @@ const LOCATION_RADIUS_PRESET = [
   5000,
 ];
 const TARGET_COMP_MIN = 10;
-const TARGET_COMP_MAX = 13;
+const TARGET_COMP_MAX = 16;
 const RADIUS_WEIGHT = 3;
 const MILEAGE_WEIGHT = 4;
 const TRANSMISSION_WEIGHT = 0.6;
 const IS_ACTIVE_WEIGHT = 3;
-const MILEAGE_STEP = 7500;
-const MILEAGE_STEP_HIGH = 15000;
+const MILEAGE_STEP = 15000;
+const MILEAGE_STEP_HIGH = 25000;
 const MILEAGE_STEP_THRESHOLD = 130000;
 const MIN_ODOMETER_LIMIT = 5000;
 const MAX_ODOMETER_LIMIT = 500000;
@@ -1066,7 +1066,7 @@ export class DCEngine {
     result['metadata'] = vehicleMeta;
     // console.log(marketSupplyData);
 
-    return result;
+    
 
     // SAVE APPRAISAL
 
@@ -1154,6 +1154,7 @@ export class DCEngine {
     //   totalGrossProfit: 0
     // }, { headers: { Authorization: `Bearer ${accessToken}` }, })
     // console.log(saveMarketPricingDetail);
+    return result;
   }
   async registerInventory(
     page: Page,
@@ -1600,21 +1601,18 @@ export class DCEngine {
     };
     // console.log(saveMarketPricingDetail);
   }
-  async adjustFilters(page: Page, filters: any, vehicleInfo: any) {
+
+  async adjustFilters(
+    page: Page,
+    filters: any,
+    vehicleInfo: any,
+  ) {
     console.log(
       `${FILTER_LOG_PREFIX} Using weighted strategy, radius=${filters.radiusInMiles}, ` +
       `odometerRange=${filters.odometerMin ?? 'null'}-${filters.odometerMax ??
       'null'}, ` +
       `isActive=${filters.isActive ?? 0}`,
     );
-    return this.adjustFiltersWeighted(page, filters, vehicleInfo);
-  }
-
-  private async adjustFiltersWeighted(
-    page: Page,
-    filters: any,
-    vehicleInfo: any,
-  ) {
     const baseFilters = this.cloneFilters(filters);
     const baseTransmissions = Array.isArray(baseFilters.transmissions)
       ? [...baseFilters.transmissions]

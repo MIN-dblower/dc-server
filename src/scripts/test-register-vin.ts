@@ -6,12 +6,12 @@ import { IVehicle } from '@interfaces/vehicle.types';
  * Leave transmission blank to let DealerCenter auto-select when needed.
  */
 const TEST_VEHICLE: IVehicle = {
-  vin: '3GCUDFED7RG462942',
+  vin: '1GC1KTEY1KF165568',
   make: 'Chevrolet',
-  model: 'Silverado 1500',
-  year: 0,
-  trim: 'LT Trail Boss',
-  odometer: 22715,
+  model: 'Silverado 2500HD',
+  year: 2019,
+  trim: 'LTZ',
+  odometer: 192879,
   transmission: '',
   color: "White",
   grade: 4.6

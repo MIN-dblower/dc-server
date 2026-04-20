@@ -217,6 +217,100 @@ export async function processAuctionFile(
 }
 
 /**
+ * Processes an auction CSV string (e.g. from an uploaded file)
+ */
+export async function processAuctionCSVContent(
+  csvContent: string,
+  fileName: string,
+  sourceId: string = 'upload',
+): Promise<ProcessedFileResult> {
+  console.log(
+    `Processing uploaded Edge Pipeline CSV: ${fileName} (source: ${sourceId})`,
+  );
+
+  // Load existing records from database
+  const existingRecords = await loadRecordMap();
+  console.log(
+    `Loaded ${Object.keys(existingRecords).length} existing records from database`,
+  );
+
+  // Parse CSV content
+  const records = parseCSV(csvContent);
+  console.log(`Parsed ${records.length} records from uploaded file`);
+
+  // Detect changes
+  const {
+    newRecords,
+    updatedRecords,
+    recordsNeedingDCUpdate,
+    recordsNeedingDBOnly,
+    skippedRecords,
+  } = detectChanges(existingRecords, records);
+
+  console.log(`Results:
+    - New records: ${newRecords.length}
+    - Updated records (odometer/watchNotes changed): ${recordsNeedingDCUpdate.length}
+    - Updated records (other fields changed): ${recordsNeedingDBOnly.length}
+    - Skipped records: ${skippedRecords.length}`);
+
+  // Enqueue DC jobs only for records where odometer or watchNotes changed
+  let dcJobsQueued = 0;
+  let dcJobsDuplicate = 0;
+  let dcJobsErrored = 0;
+
+  // Process records that need DC update (new records or odometer/watchNotes changed)
+  for (const record of recordsNeedingDCUpdate) {
+    const isNew = !existingRecords[record.vin];
+
+    try {
+      const { wasDuplicate } = await enqueueDCUpdateJob({
+        record,
+        isNewRecord: isNew,
+        auctionType: 'Edge Pipeline',
+        fileId: sourceId,
+        fileName,
+      });
+
+      if (wasDuplicate) {
+        dcJobsDuplicate++;
+      } else {
+        dcJobsQueued++;
+      }
+    } catch (error) {
+      dcJobsErrored++;
+      console.error(
+        `Error enqueueing DC job for VIN ${record.vin}:`,
+        error,
+      );
+    }
+  }
+
+  // Save records that only need DB update (other fields changed, not odometer/watchNotes)
+  for (const record of recordsNeedingDBOnly) {
+    try {
+      await saveOrUpdateRecord(record);
+    } catch (error) {
+      console.error(
+        `Error saving record to DB for VIN ${record.vin}:`,
+        error,
+      );
+    }
+  }
+
+  return {
+    newRecords,
+    updatedRecords,
+    skippedRecords,
+    totalRecords: records.length,
+    dcQueueStats: {
+      queued: dcJobsQueued,
+      duplicates: dcJobsDuplicate,
+      errors: dcJobsErrored,
+    },
+  };
+}
+
+/**
  * Processes a local CSV file
  */
 export async function processLocalAuctionFile(filePath: string): Promise<ProcessedFileResult> {
