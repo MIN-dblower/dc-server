@@ -3,15 +3,17 @@ import path from 'path';
 import { createBullBoard } from '@bull-board/api';
 import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
 import { ExpressAdapter } from '@bull-board/express';
-import { DataCenterScraper } from './services/datacenter';
 import { Page } from 'puppeteer';
 import { userPromptSchema } from './interfaces/dealercenter.validation';
 import _ from 'lodash';
 import { processAuctionCSVContent } from './services/auctionFileProcessor';
 import { processAdesaCSVContent } from './services/adesaFileProcessor';
 import { getDCUpdateQueue } from './services/jobQueue';
-import { getTelegramQueue } from './services/telegramQueue';
+import { enqueueTelegramMessage, getTelegramQueue } from './services/telegramQueue';
 import { ensureGoogleDriveAuth } from '@services/googledrive';
+import { DCEngine } from '@services/dcengine';
+import { attemptLoginWithRetry } from '@services/dcUpdateExample';
+import { LoginError } from '@errors/loginError';
 
 // Use require to avoid any TypeScript type dependency on multer
 // tslint:disable-next-line:no-var-requires
@@ -24,12 +26,11 @@ const upload = multer({
 });
 
 const app = express();
-const scraper = new DataCenterScraper();
-let page: Page;
-export async function init() {
-  page = await scraper.openScraper();
-  // await scraper.login(page);
-}
+
+// export async function init() {
+//   page = await scraper.openScraper();
+//   // await scraper.login(page);
+// }
 
 /**
  * Basic HTTP Authentication Middleware
@@ -76,11 +77,96 @@ function basicAuthMiddleware(
 app.set('views', path.join(process.cwd(), 'views'));
 app.set('view engine', 'pug');
 
-// Global authentication for all HTTP endpoints
-app.use(basicAuthMiddleware);
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+app.post('/getBook', async (req: any, res: any) => {
+  const { vin, prompts } = req.body;
+  const scraper = new DCEngine();
+  const page = await scraper.openScraper();
+  // Get authentication token
+  let token = await scraper.getToken(page);
+
+  // If no token, attempt to login with retry logic
+  if (!token) {
+    console.log('🔐 No token found, attempting to login with retry logic...');
+    try {
+      token = await attemptLoginWithRetry(scraper, page, vin, 3);
+      console.log('✅ Login successful, token obtained');
+    } catch (loginError) {
+      // If it's a LoginError, we've exhausted all retries
+      if (loginError instanceof LoginError) {
+        console.error(`❌ Login failed after ${loginError.attempts} attempts`);
+
+        // Send Telegram alert for login failure after max retries
+        await enqueueTelegramMessage({
+          type: 'system_health',
+          component: 'DC Authentication',
+          status: `Login failed after ${loginError.maxAttempts} attempts for VIN: ${vin}. Last error: ${loginError.message}`,
+          details: {
+            vin: vin,
+            attempts: loginError.attempts,
+            maxAttempts: loginError.maxAttempts,
+          },
+        });
+
+        res.status(400).json({
+          status: 'failed',
+          message: loginError.message,
+        });
+        return;
+      }
+
+      // Other login errors
+      const errorMessage =
+        loginError instanceof Error ? loginError.message : 'Unknown error';
+      console.error('❌ Login failed:', loginError);
+
+      // Send Telegram alert for login failure
+      await enqueueTelegramMessage({
+        type: 'system_health',
+        component: 'DC Authentication',
+        status: `Login failed: ${errorMessage}. VIN: ${vin}`,
+      });
+
+      res.status(400).json({
+        status: 'failed',
+        message: `Login failed: ${errorMessage}`,
+      });
+      return;
+    }
+  }
+
+  scraper.setToken(token);
+
+  
+  try {
+    userPromptSchema.parse(prompts || []);
+  } catch {
+    res.status(400).json({
+      status: 'failed',
+      message: 'Incorrect format for prompts',
+    });
+    return;
+  }
+  try {
+    const data = await scraper.getData(page, vin, prompts);
+    res.status(200).json({
+      data,
+    });
+  } catch (e) {
+    res.status(400).json({
+      isCompleted: false,
+      error: _.get(e, 'message', 'Something went wrong'),
+    });
+  } finally {
+    await scraper.close();
+  }
+});
+
+// Global authentication for all HTTP endpoints
+app.use(basicAuthMiddleware);
 
 // BullMQ dashboard (Bull Board) under the main app
 const serverAdapter = new ExpressAdapter();
@@ -166,8 +252,7 @@ app.post(
       }
 
       console.log(
-        `Detected uploaded auction type as ${
-          detected === 'adesa' ? 'Adesa' : 'Edge Pipeline'
+        `Detected uploaded auction type as ${detected === 'adesa' ? 'Adesa' : 'Edge Pipeline'
         } for file: ${file.originalname}`,
       );
 
@@ -199,28 +284,6 @@ app.post(
     }
   },
 );
-app.post('/getBook', async (req: any, res: any) => {
-  const { vin, prompts } = req.body;
-  try {
-    userPromptSchema.parse(prompts || []);
-  } catch {
-    res.status(400).json({
-      status: 'failed',
-      message: 'Incorrect format for prompts',
-    });
-    return;
-  }
-  try {
-    const data = await scraper.getData(page, vin, prompts);
-    res.status(200).json({
-      data,
-    });
-  } catch (e) {
-    res.status(400).json({
-      isCompleted: false,
-      error: _.get(e, 'message', 'Something went wrong'),
-    });
-  }
-});
+
 
 export default app;

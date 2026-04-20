@@ -23,7 +23,8 @@
       "@utils/*": ["utils/*"],
       "@services/*": ["services/*"],
       "@components/*": ["components/*"],
-      "@interfaces/*": ["interfaces/*"]
+      "@interfaces/*": ["interfaces/*"],
+      "@errors/*": ["errors/*"]
     },
     "lib": ["ESNext", "DOM"],
     "types": ["jest", "node"]

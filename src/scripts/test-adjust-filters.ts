@@ -208,15 +208,15 @@ async function main(): Promise<void> {
     }
 
     let marketFilter: MarketFilter;
-    if (inventoryId) {
-      console.log(
-        `[AdjustFiltersTest] Using inventoryId=${inventoryId} to fetch market price filter`,
-      );
-      marketFilter = await dcEngine.getMarketPriceFilter(page, inventoryId);
-      if (TEST_ODOMETER) {
-        marketFilter.vehicleInfo.odometer = TEST_ODOMETER;
-      }
-    } else {
+    // if (inventoryId) {
+    //   console.log(
+    //     `[AdjustFiltersTest] Using inventoryId=${inventoryId} to fetch market price filter`,
+    //   );
+    //   marketFilter = await dcEngine.getMarketPriceFilter(page, inventoryId);
+    //   if (TEST_ODOMETER) {
+    //     marketFilter.vehicleInfo.odometer = TEST_ODOMETER;
+    //   }
+    // } else {
       if (!TEST_ODOMETER) {
         throw new Error(
           'Set TEST_ODOMETER (env or script) before testing unregistered vehicles.',
@@ -232,13 +232,15 @@ async function main(): Promise<void> {
         TEST_VIN,
         TEST_ODOMETER,
       );
-    }
+    // }
 
     console.log(
       `[AdjustFiltersTest] Initial radius=${marketFilter.filters.radiusInMiles}, ` +
         `odometer=${marketFilter.filters.odometerMin ?? 'null'}-${marketFilter
           .filters.odometerMax ?? 'null'}`,
     );
+
+    console.log(JSON.stringify( marketFilter.vehicleInfo, null, 2));
 
     const { filters, marketLookupData } = await dcEngine.adjustFilters(
       page,
@@ -247,6 +249,7 @@ async function main(): Promise<void> {
     );
 
     const listingCount = marketLookupData.marketDaysSupplyResponse.matching;
+    console.log(JSON.stringify(filters, null, 2));
 
     console.log(
       '[AdjustFiltersTest] ✅ Completed.\n' +
