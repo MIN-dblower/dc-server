@@ -91,7 +91,7 @@ export async function attemptLoginWithRetry(
   }
 
   // All attempts failed - throw LoginError
-  throw new LoginError(vin, maxAttempts, maxAttempts);
+  throw new LoginError(maxAttempts, maxAttempts);
 }
 
 /**
