@@ -210,6 +210,101 @@ export async function processAdesaFile(
 }
 
 /**
+ * Processes an Adesa CSV string (e.g. from an uploaded file)
+ * Updates DC before saving to database
+ */
+export async function processAdesaCSVContent(
+  csvContent: string,
+  fileName: string,
+  sourceId: string = 'upload',
+): Promise<ProcessedAdesaFileResult> {
+  console.log(
+    `Processing uploaded Adesa CSV: ${fileName} (source: ${sourceId})`,
+  );
+
+  // Load existing records from database
+  const existingRecords = await loadAdesaRecordMap();
+  console.log(
+    `Loaded ${Object.keys(existingRecords).length} existing Adesa records from database`,
+  );
+
+  // Parse CSV content
+  const records = parseAdesaCSV(csvContent);
+  console.log(`Parsed ${records.length} Adesa records from uploaded file`);
+
+  // Detect changes
+  const {
+    newRecords,
+    updatedRecords,
+    recordsNeedingDCUpdate,
+    recordsNeedingDBOnly,
+    skippedRecords,
+  } = detectChanges(existingRecords, records);
+
+  console.log(`Results:
+    - New records: ${newRecords.length}
+    - Updated records (odometer/notes changed): ${recordsNeedingDCUpdate.length}
+    - Updated records (other fields changed): ${recordsNeedingDBOnly.length}
+    - Skipped records: ${skippedRecords.length}`);
+
+  // Enqueue DC jobs for records where odometer or notes changed
+  let dcJobsQueued = 0;
+  let dcJobsDuplicate = 0;
+  let dcJobsErrored = 0;
+
+  // Process records that need DC update (new records or odometer/notes changed)
+  for (const record of recordsNeedingDCUpdate) {
+    const isNew = !existingRecords[record.vin];
+
+    try {
+      const { wasDuplicate } = await enqueueDCUpdateJob({
+        record,
+        isNewRecord: isNew,
+        auctionType: 'Adesa',
+        fileId: sourceId,
+        fileName,
+      });
+
+      if (wasDuplicate) {
+        dcJobsDuplicate++;
+      } else {
+        dcJobsQueued++;
+      }
+    } catch (error) {
+      dcJobsErrored++;
+      console.error(
+        `Error enqueueing DC job for VIN ${record.vin}:`,
+        error,
+      );
+    }
+  }
+
+  // Save records that only need DB update (other fields changed, not odometer/notes)
+  for (const record of recordsNeedingDBOnly) {
+    try {
+      await saveOrUpdateAdesaRecord(record);
+    } catch (error) {
+      console.error(
+        `Error saving record to DB for VIN ${record.vin}:`,
+        error,
+      );
+    }
+  }
+
+  return {
+    newRecords,
+    updatedRecords,
+    skippedRecords,
+    totalRecords: records.length,
+    dcQueueStats: {
+      queued: dcJobsQueued,
+      duplicates: dcJobsDuplicate,
+      errors: dcJobsErrored,
+    },
+  };
+}
+
+/**
  * Processes a local Adesa CSV file
  */
 export async function processLocalAdesaFile(

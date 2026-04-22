@@ -29,8 +29,8 @@ module.exports = {
       },
     },
     {
-      name: 'queue-dashboard',
-      script: 'build/workers/queueDashboard.js',
+      name: 'web',
+      script: 'build/index.js',
       cwd: __dirname,
       env: {
         NODE_ENV: 'production',
