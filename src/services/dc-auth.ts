@@ -1,6 +1,6 @@
 import { Page } from "puppeteer";
 import { DCEngine } from "./dcengine";
-import { LoginError } from "errors/loginError";
+import { LoginError } from "@errors/loginError";
 
 // Login retry configuration
 const MAX_LOGIN_RETRIES = 3;
