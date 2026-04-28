@@ -4,7 +4,7 @@ import { userPromptSchema } from './interfaces/dealercenter.validation';
 import _ from 'lodash';
 import { DCEngine } from '@services/dcengine';
 import { enqueueTelegramMessage } from '@services/telegramQueue';
-import { LoginError } from 'errors/loginError';
+import { LoginError } from '@errors/loginError';
 import { attemptLoginWithRetry } from '@services/dc-auth';
 
 const app = express();

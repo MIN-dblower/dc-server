@@ -36,7 +36,7 @@ import { enqueueTelegramMessage } from './telegramQueue';
 import { UncoveredCaseError } from '../errors/uncoveredCaseError';
 import { NoCompFoundError } from '../errors/noCompFoundError';
 import { NoVehicleDataError } from '../errors/noVehicleDataError';
-import { LoginError } from '../errors/loginError';
+import { LoginError } from '@errors/loginError';
 import { getEmailNotificationService } from './emailNotification';
 import { getAdesaRecordByVin } from '../storage/adesaDb';
 import { getEdgePipelineRecordByVin } from '../storage/db';

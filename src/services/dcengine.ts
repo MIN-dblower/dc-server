@@ -110,7 +110,7 @@ export class DCEngine {
       console.log(url);
       if (!url.startsWith('https://auth.dealercenter.net/u/login?')) {
         console.log('Go to the Login Page.');
-        await page.goto('https://dmsapp.dealercenter.net/Home/SignIn', {
+        await page.goto('https://app.dealercenter.net/apps/shell/reports/home', {
           waitUntil: 'networkidle2',
         });
       }
