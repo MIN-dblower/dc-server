@@ -102,6 +102,14 @@ export async function processTelegramMessage(
         await telegramService.sendMessage(autoSelectionMessage);
         break;
 
+      case 'mfa_required':
+        const mfaMessage = `🔐 <b>MFA Needed</b>\n\n` +
+          `DealerCenter login hit an MFA challenge and requires manual verification.\n` +
+          `Please log in manually to complete MFA and unblock the sync worker.\n\n` +
+          `Time: ${new Date().toISOString()}`;
+        await telegramService.sendMessage(mfaMessage);
+        break;
+
       case 'dc_sync_completed':
         const dcSyncDetails = job.data.dcSyncDetails;
         if (!vin || !dcSyncDetails) {

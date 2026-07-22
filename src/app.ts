@@ -14,6 +14,7 @@ import { ensureGoogleDriveAuth } from '@services/googledrive';
 import { DCEngine } from '@services/dcengine';
 import { attemptLoginWithRetry } from '@services/dc-auth';
 import { LoginError } from '@errors/loginError';
+import { MfaRequiredError } from '@errors/mfaRequiredError';
 // Use require to avoid any TypeScript type dependency on multer
 // tslint:disable-next-line:no-var-requires
 const multer = require('multer');
@@ -101,6 +102,15 @@ app.post('/getBook', async (req: any, res: any) => {
         token = await attemptLoginWithRetry(scraper, page);
         console.log('✅ Login successful, token obtained');
       } catch (loginError) {
+        // MFA challenge - Telegram alert already sent by attemptLoginWithRetry
+        if (loginError instanceof MfaRequiredError) {
+          res.status(200).json({
+            success: false,
+            error: loginError.message,
+          });
+          return;
+        }
+
         // If it's a LoginError, we've exhausted all retries
         if (loginError instanceof LoginError) {
           console.error(`Login failed after ${loginError.attempts} attempts`);

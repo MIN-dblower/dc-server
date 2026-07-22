@@ -264,12 +264,17 @@ For remote Redis, update `REDIS_HOST` and `REDIS_PORT` accordingly.
 2. Send `/newbot` and follow instructions
 3. Copy the bot token
 
-### Get Chat ID
+### Get Chat ID (Channel)
 
-1. Start a chat with your bot
-2. Send any message
-3. Visit: `https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getUpdates`
-4. Find `chat.id` in the response
+Alerts should go to a channel, not a single user's DM, so multiple people can see them.
+
+1. Create a Telegram channel (or use an existing one)
+2. Add your bot to the channel as an **administrator** (needs "Post Messages" permission)
+3. Get the channel's chat ID:
+   - Public channel: use `@your_channel_username` directly as `TELEGRAM_CHAT_ID` — no lookup needed
+   - Private channel: post any message in the channel, then visit
+     `https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getUpdates` and find `channel_post.chat.id`
+     in the response. It will look like `-100XXXXXXXXXX`.
 
 ### Configuration
 
@@ -277,7 +282,7 @@ Add to `.env`:
 
 ```bash
 TELEGRAM_BOT_TOKEN=your_bot_token_here
-TELEGRAM_CHAT_ID=your_chat_id_here
+TELEGRAM_CHAT_ID=your_channel_chat_id_here   # e.g. -1001234567890 or @your_channel_username
 ```
 
 ## 7. Optional Settings

@@ -15,6 +15,9 @@ build
 dist
 *.tsbuildinfo
 
+# Chrome profile (see scripts/start-chrome.sh)
+.chrome-profile-dc
+
 # IDE and editor files
 .vscode
 .idea

@@ -37,61 +37,20 @@ import { UncoveredCaseError } from '../errors/uncoveredCaseError';
 import { NoCompFoundError } from '../errors/noCompFoundError';
 import { NoVehicleDataError } from '../errors/noVehicleDataError';
 import { LoginError } from '@errors/loginError';
+import { MfaRequiredError } from '@errors/mfaRequiredError';
+import { attemptLoginWithRetry } from './dc-auth';
 import { getEmailNotificationService } from './emailNotification';
 import { getAdesaRecordByVin } from '../storage/adesaDb';
 import { getEdgePipelineRecordByVin } from '../storage/db';
 
 // Login retry configuration
 const MAX_LOGIN_RETRIES = 3;
-const LOGIN_RETRY_DELAY_MS = 2000; // 2 seconds between retries
 
 /**
  * Determines if a record is an Adesa record
  */
 function isAdesaRecord(record: AuctionRecordUnion): record is AdesaRecord {
   return 'laneRun' in record;
-}
-
-/**
- * Attempts to login with retry logic
- * @throws LoginError if all retry attempts fail
- */
-export async function attemptLoginWithRetry(
-  dcEngine: DCEngine,
-  page: Page,
-  vin: string,
-  maxAttempts: number = MAX_LOGIN_RETRIES,
-): Promise<string> {
-  let lastError: Error | null = null;
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      console.log(`🔄 Login attempt ${attempt}/${maxAttempts} for VIN ${vin}...`);
-
-      await dcEngine.forceLogin(page);
-
-      // Try to get token after login
-      const token = await dcEngine.getToken(page);
-
-      if (token) {
-        console.log(`✅ Login successful on attempt ${attempt}`);
-        return token;
-      } else {
-        throw new Error('Failed to retrieve token after login');
-      }
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-      console.error(`❌ Login attempt ${attempt} failed:`, lastError.message);
-
-      if (attempt < maxAttempts) {
-        console.log(`⏳ Waiting ${LOGIN_RETRY_DELAY_MS}ms before retry...`);
-        await new Promise(resolve => setTimeout(resolve, LOGIN_RETRY_DELAY_MS));
-      }
-    }
-  }
-
-  // All attempts failed - throw LoginError
-  throw new LoginError(maxAttempts, maxAttempts);
 }
 
 /**
@@ -768,9 +727,17 @@ export async function updateDCForAuctionRecord(
     if (!token) {
       console.log('🔐 No token found, attempting to login with retry logic...');
       try {
-        token = await attemptLoginWithRetry(dcEngine, page, record.vin, MAX_LOGIN_RETRIES);
+        token = await attemptLoginWithRetry(dcEngine, page, MAX_LOGIN_RETRIES);
         console.log('✅ Login successful, token obtained');
       } catch (loginError) {
+        // MFA challenge - Telegram alert already sent by attemptLoginWithRetry
+        if (loginError instanceof MfaRequiredError) {
+          return {
+            success: false,
+            error: loginError.message,
+          };
+        }
+
         // If it's a LoginError, we've exhausted all retries
         if (loginError instanceof LoginError) {
           console.error(`❌ Login failed after ${loginError.attempts} attempts`);

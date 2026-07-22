@@ -57,7 +57,7 @@ REDIS_PORT=6379
 
 # Telegram (optional)
 TELEGRAM_BOT_TOKEN=your_bot_token
-TELEGRAM_CHAT_ID=your_chat_id
+TELEGRAM_CHAT_ID=your_channel_chat_id   # channel, e.g. -1001234567890 or @your_channel_username
 
 # Optional settings
 POLL_INTERVAL_MS=300000  # Default: 5 minutes
@@ -72,7 +72,9 @@ See [Setup Guide](./docs/SETUP.md) for detailed configuration instructions.
 ```bash
 # 1. Start Chrome with remote debugging (required for DC sync)
 # See Setup Guide for Chrome configuration
-google-chrome --user-data-dir=~/chrome-profile-dc --remote-debugging-port=19203
+npm run chrome:start
+# Equivalent to: google-chrome --user-data-dir=./.chrome-profile-dc --remote-debugging-port=19203
+# Override with CHROME_PROFILE_DIR / CHROME_DEBUG_PORT / CHROME_BIN env vars
 
 # 2. Run all workers in parallel
 npm run dev:start

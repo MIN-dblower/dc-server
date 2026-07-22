@@ -36,7 +36,8 @@
     "pm2:status": "pm2 status",
     "pm2:logs": "pm2 logs",
     "pm2:reload": "pm2 reload ecosystem.config.js",
-    "google:auth": "NODE_ENV=development npx ts-node src/scripts/get-google-oauth-tokens.ts"
+    "google:auth": "NODE_ENV=development npx ts-node src/scripts/get-google-oauth-tokens.ts",
+    "chrome:start": "bash scripts/start-chrome.sh"
   },
   "pre-commit": [
     "lint"

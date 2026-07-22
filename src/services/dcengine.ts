@@ -4,12 +4,12 @@ import { IAnswer, IQuestion } from '../interfaces/dealercenter.types';
 import { InputAnswer, UserAnswer } from '../interfaces/dealercenter.validation';
 import axios from 'axios';
 import { filterItems } from '../lib/array';
-import { fetchOtpWithBackoff } from './otp.service';
 import { IVehicle } from 'interfaces/vehicle.types';
 import { generateId } from '../utils/auction';
 import { findBestMatch } from '../utils/stringSimilarity';
 import { UncoveredCaseError } from '../errors/uncoveredCaseError';
 import { NoVehicleDataError } from '../errors/noVehicleDataError';
+import { MfaRequiredError } from '../errors/mfaRequiredError';
 
 const FILTER_LOG_PREFIX = '[MarketFilters]';
 const LOCATION_RADIUS_PRESET = [
@@ -103,7 +103,8 @@ export class DCEngine {
     const page = await this.window.connectRemote(19203);
     return page;
   }
-  async login(page: Page) {
+  async login(page: Page, attempt: number = 1): Promise<void> {
+    const MAX_LOGIN_NAV_ATTEMPTS = 3;
     console.log('Login Invoked');
     try {
       const url = await page.url();
@@ -125,8 +126,10 @@ export class DCEngine {
     } catch (e) {
       console.log('Login Errr', e);
 
-      // await page.reload();
-      this.login(page);
+      if (attempt >= MAX_LOGIN_NAV_ATTEMPTS) {
+        throw e;
+      }
+      await this.login(page, attempt + 1);
     } finally {
       console.log('Login function called');
     }
@@ -136,34 +139,7 @@ export class DCEngine {
 
     const url = await page.url();
     if (url.includes('mfa-sms-challenge')) {
-      console.log('LOG: Trying to pass MFA');
-      // Select Mail option
-      await Promise.all([
-        page.waitForNavigation({ waitUntil: 'networkidle0' }),
-        page.click('button[type="submit"][name="action"][value="pick-authenticator"]'),
-      ]);
-
-      await Promise.all([
-        page.waitForNavigation({ waitUntil: 'networkidle0' }),
-        page.click('button[type="submit"][name="action"][value="email::1"]')
-      ]);
-
-      const passcode = await fetchOtpWithBackoff(
-        'http://localhost:8080/get-otp',
-        100,
-      );
-
-      // fill the input field
-      await page.type('input[name="code"][autocomplete="off"]', passcode ?? ''); // replace '123456' with your actual code
-
-      // click the "Continue" button
-      await Promise.all([
-        page.waitForNavigation({ waitUntil: 'load' }),
-        page.click('button[type="submit"][value="default"]')
-      ]);
-
-      console.log('LOG: SUCCESSFULLY PASSED MFA');
-      await this.login(page);
+      throw new MfaRequiredError();
     }
   }
   setToken(token: string) {
@@ -192,7 +168,7 @@ export class DCEngine {
       console.log('AUTH: Error validating token', e);
       return null;
     } finally {
-      console.log('AUth token: ', accessToken);
+      console.log('AUTH: token present:', accessToken != null);
     }
   }
 

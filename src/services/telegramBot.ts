@@ -1,8 +1,12 @@
 /**
  * Telegram Bot Service for Alerts
- * 
+ *
  * Sends alerts via Telegram bot for system events, failures, and blocked VINs.
  * Uses no-polling mode (webhook/polling disabled) for direct API calls.
+ *
+ * TELEGRAM_CHAT_ID should point at a channel (e.g. -100XXXXXXXXXX or
+ * @channel_username) with the bot added as an admin, not a single user's DM
+ * — see docs/SETUP.md.
  */
 
 import TelegramBot from 'node-telegram-bot-api';

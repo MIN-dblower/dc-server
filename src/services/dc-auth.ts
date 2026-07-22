@@ -1,6 +1,8 @@
 import { Page } from "puppeteer";
 import { DCEngine } from "./dcengine";
 import { LoginError } from "@errors/loginError";
+import { MfaRequiredError } from "@errors/mfaRequiredError";
+import { enqueueTelegramMessage } from "./telegramQueue";
 
 // Login retry configuration
 const MAX_LOGIN_RETRIES = 3;
@@ -33,6 +35,12 @@ export async function attemptLoginWithRetry(
                 throw new Error('Failed to retrieve token after login');
             }
         } catch (error) {
+            if (error instanceof MfaRequiredError) {
+                console.error('❌ Login requires MFA - notifying via Telegram, aborting retries');
+                await enqueueTelegramMessage({ type: 'mfa_required' });
+                throw error;
+            }
+
             lastError = error instanceof Error ? error : new Error(String(error));
             console.error(`❌ Login attempt ${attempt} failed:`, lastError.message);
 
