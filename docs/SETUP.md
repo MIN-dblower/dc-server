@@ -5,7 +5,7 @@ Complete setup instructions for the Scrape Engine system.
 ## Prerequisites
 
 - Node.js 18 or higher
-- Redis server (local or remote)
+- Redis Cloud database (or local Redis for development)
 - PostgreSQL database
 - Google Cloud Console account
 - Telegram account (optional, for alerts)
@@ -227,34 +227,44 @@ dotenv -e .env -- npx ts-node src/scripts/list-google-drive-files.ts <folderId>
 
 ## 5. Redis Setup
 
-### Local Redis
+BullMQ (the job queue) is backed by [Redis Cloud](https://redis.io/cloud/). Create a database there and use its connection string.
 
-Install Redis:
-```bash
-# Ubuntu/Debian
-sudo apt-get install redis-server
+### Redis Cloud
 
-# macOS
-brew install redis
-```
-
-Start Redis:
-```bash
-redis-server
-```
+1. Create a database in the [Redis Cloud console](https://app.redislabs.com/)
+2. Copy the connection string it gives you (`redis://default:<password>@<host>:<port>`, or `rediss://...` if you enabled TLS on the database)
 
 ### Configuration
 
 Add to `.env`:
 
 ```bash
+REDIS_URL=redis://default:your_password@your-endpoint.redns.redis-cloud.com:12345
+```
+
+### Local Redis (development alternative)
+
+For local development without Redis Cloud, install Redis and use the discrete vars instead:
+
+```bash
+# Ubuntu/Debian
+sudo apt-get install redis-server
+# macOS
+brew install redis
+
+redis-server
+```
+
+```bash
 REDIS_HOST=localhost
 REDIS_PORT=6379
 REDIS_PASSWORD=        # Optional
+REDIS_USERNAME=        # Optional (Redis ACL)
 REDIS_DB=0
+REDIS_TLS=false
 ```
 
-For remote Redis, update `REDIS_HOST` and `REDIS_PORT` accordingly.
+`REDIS_URL` takes precedence over the discrete vars when both are set.
 
 ## 6. Telegram Bot (Optional)
 
@@ -309,7 +319,7 @@ CUTOFF_TIME_HOURS=12
 
 3. **Test Redis:**
    ```bash
-   redis-cli ping
+   redis-cli -u "$REDIS_URL" ping
    # Should return: PONG
    ```
 
@@ -342,9 +352,10 @@ CUTOFF_TIME_HOURS=12
 
 ### Cannot Connect to Redis
 
-- Verify Redis is running: `redis-cli ping`
-- Check `REDIS_HOST` and `REDIS_PORT` in `.env`
-- For remote Redis, check firewall rules
+- Verify the database is reachable: `redis-cli -u "$REDIS_URL" ping`
+- Check `REDIS_URL` in `.env` (or `REDIS_HOST`/`REDIS_PORT` if using discrete vars)
+- Confirm the Redis Cloud database's allowlist permits your server's IP
+- If the database has TLS enabled, make sure the URL uses `rediss://` (or set `REDIS_TLS=true` with discrete vars)
 
 ### Files Not Found
 

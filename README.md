@@ -16,7 +16,7 @@ Automated auction file monitoring and Dealer Center synchronization system. Moni
 ### Prerequisites
 
 - Node.js 18+
-- Redis server
+- Redis Cloud database (or local Redis for development)
 - PostgreSQL database (with Prisma)
 - Google Cloud Console project with Drive/Sheets API enabled
 - Telegram bot token (optional, for alerts)
@@ -51,9 +51,8 @@ GOOGLE_OAUTH_REFRESH_TOKEN=your_refresh_token
 GOOGLE_DRIVE_ADESA_FOLDER_ID=your_adesa_folder_id
 GOOGLE_DRIVE_EDGE_FOLDER_ID=your_edge_folder_id
 
-# Redis
-REDIS_HOST=localhost
-REDIS_PORT=6379
+# Redis (Redis Cloud connection string; see docs/SETUP.md for local dev alternative)
+REDIS_URL=redis://default:your_password@your-endpoint.redns.redis-cloud.com:12345
 
 # Telegram (optional)
 TELEGRAM_BOT_TOKEN=your_bot_token
