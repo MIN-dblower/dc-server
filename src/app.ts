@@ -3,7 +3,6 @@ import path from 'path';
 import { createBullBoard } from '@bull-board/api';
 import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
 import { ExpressAdapter } from '@bull-board/express';
-import { Page } from 'puppeteer';
 import { userPromptSchema } from './interfaces/dealercenter.validation';
 import _ from 'lodash';
 import { processAuctionCSVContent } from './services/auctionFileProcessor';

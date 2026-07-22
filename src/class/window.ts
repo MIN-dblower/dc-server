@@ -32,45 +32,6 @@ export class Window {
     const pages = await this.browser.pages();
     return pages[index];
   }
-  async connect() {
-    console.log(process.env.PROXY);
-    const options = {
-      defaultViewport: null,
-      args: [
-        // "--start-maximized",
-        `--proxy-server=${process.env.PROXY}`,
-      ],
-      headless: this.headless,
-      devtools: false,
-    };
-    if (process.platform == 'linux') options.args.push('--no-sandbox');
-    this.browser = await puppeteer.launch(options);
-    this.browser.on('disconnected', async () => {
-      console.log('BROWSER CRASH');
-      if (this.browser && this.browser.process() != null)
-        this.browser.process().kill('SIGINT');
-    });
-    // const pages = await this.browser.pages();
-    // this.page = pages[0];
-    [this.page] = await this.browser.pages();
-    // await this.page.authenticate({
-    //   username: 'ted563473',
-    //   password: 'YvYtg2iIdt',
-    // });
-    // await this.page.setRequestInterception(true);
-    // this.page.on('request', (request) => {
-    //     // Use the resourceType method to determine the type of the request
-    //     if (request.resourceType() === 'image' || request.resourceType() === 'stylesheet') {
-    //         // Abort requests for images or stylesheets
-    //         request.abort();
-    //     } else {
-    //         // Continue with all other requests
-    //         request.continue();
-    //     }
-    // });
-    await this.page.setDefaultNavigationTimeout(100000);
-    return this.page;
-  }
   async navigate(path: string) {
     if (this.page === null) return;
     await this.page.goto(path, { waitUntil: 'networkidle2' });

@@ -15,21 +15,6 @@ function getEnvVar(key: string, fallback?: string): string | undefined {
  * back to the discrete REDIS_HOST/PORT/USERNAME/PASSWORD/DB/TLS vars.
  */
 export function getRedisConfig(): RedisOptions {
-  const redisUrl = getEnvVar('REDIS_URL');
-
-  if (redisUrl) {
-    const parsed = new URL(redisUrl);
-    const db = parsed.pathname.replace('/', '');
-    return {
-      host: parsed.hostname,
-      port: Number(parsed.port || 6379),
-      username: parsed.username || undefined,
-      password: parsed.password || undefined,
-      db: db ? Number(db) : 0,
-      tls: parsed.protocol === 'rediss:' ? {} : undefined,
-      maxRetriesPerRequest: null,
-    };
-  }
 
   const useTls = getEnvVar('REDIS_TLS', 'false') === 'true';
 
