@@ -1,6 +1,8 @@
+import { loadEnvConfig } from '../config/env.config';
+loadEnvConfig();
 import { Worker, Job } from 'bullmq';
 import IORedis from 'ioredis';
-import { loadEnvConfig } from '../config/env.config';
+
 import { getRedisConfig } from '../config/redis.config';
 import { processDCUpdateJob } from '../services/jobProcessor';
 import { DC_UPDATE_QUEUE, DC_UPDATE_JOB, DCUpdateJobData } from '../types/job.types';
@@ -12,7 +14,7 @@ import { DCUpdateResult } from '../services/dcUpdateInterface';
 import { AdesaRecord } from '../interfaces/adesa.types';
 
 // Initialize environment configuration
-loadEnvConfig();
+
 
 /**
  * Wrapper processor that checks for blocked VINs before processing

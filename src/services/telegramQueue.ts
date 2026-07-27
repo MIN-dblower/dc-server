@@ -14,7 +14,6 @@ import {
 } from '../types/job.types';
 
 const connection = new IORedis(getRedisConfig());
-
 const telegramQueue = new Queue<TelegramMessageJobData>(TELEGRAM_MESSAGE_QUEUE, {
   connection,
 });

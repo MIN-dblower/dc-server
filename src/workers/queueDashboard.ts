@@ -3,11 +3,10 @@ import { createBullBoard } from '@bull-board/api';
 import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
 import { ExpressAdapter } from '@bull-board/express';
 import { loadEnvConfig } from '../config/env.config';
+loadEnvConfig();
 import { getDCUpdateQueue } from '../services/jobQueue';
 import { getTelegramQueue } from '../services/telegramQueue';
 
-// Initialize environment configuration
-loadEnvConfig();
 
 const PORT = process.env.BULL_BOARD_PORT
   ? parseInt(process.env.BULL_BOARD_PORT, 10)

@@ -7,6 +7,8 @@
 import { Worker } from 'bullmq';
 import IORedis from 'ioredis';
 import { loadEnvConfig } from '../config/env.config';
+// Initialize environment configuration
+loadEnvConfig();
 import { getRedisConfig } from '../config/redis.config';
 import {
   TELEGRAM_MESSAGE_QUEUE,
@@ -14,8 +16,7 @@ import {
 } from '../types/job.types';
 import { processTelegramMessage } from '../services/telegramProcessor';
 
-// Initialize environment configuration
-loadEnvConfig();
+
 
 async function main(): Promise<void> {
   console.log('📱 Starting Telegram Message Worker...');

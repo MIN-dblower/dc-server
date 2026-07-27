@@ -1,9 +1,9 @@
-import { AuctionMonitor } from '../services/auctionMonitor';
 import { loadEnvConfig } from '../config/env.config';
 
 // Initialize environment configuration
 loadEnvConfig();
 
+import { AuctionMonitor } from '../services/auctionMonitor';
 /**
  * Auction Monitor Worker
  * 

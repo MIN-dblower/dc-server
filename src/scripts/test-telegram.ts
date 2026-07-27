@@ -1,3 +1,5 @@
+import { loadEnvConfig } from 'config/env.config';
+loadEnvConfig();
 import { enqueueTelegramMessage, getTelegramQueue } from '@services/telegramQueue';
 import { TelegramMessageJobData } from '../types/job.types';
 
