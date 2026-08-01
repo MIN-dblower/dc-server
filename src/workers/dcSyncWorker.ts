@@ -7,25 +7,43 @@ import { getRedisConfig } from '../config/redis.config';
 import { processDCUpdateJob } from '../services/jobProcessor';
 import { DC_UPDATE_QUEUE, DC_UPDATE_JOB, DCUpdateJobData } from '../types/job.types';
 import { BlockedVinError } from '../errors/blockedVinError';
+import { MfaRequiredError } from '../errors/mfaRequiredError';
+import { UncoveredCaseError } from '../errors/uncoveredCaseError';
 import { isVinBlocked, getBlockedVinDetails } from '../services/blockedVins';
 import { pauseJobsForBlockedVin, getDCUpdateQueue } from '../services/jobQueue';
 import { enqueueTelegramMessage } from '../services/telegramQueue';
 import { DCUpdateResult } from '../services/dcUpdateInterface';
 import { AdesaRecord } from '../interfaces/adesa.types';
 
-// Initialize environment configuration
+async function reportJobError(error: unknown, vin: string, jobId?: string): Promise<void> {
+  try {
+    if (error instanceof MfaRequiredError) {
+      await enqueueTelegramMessage({ type: 'mfa_required' });
+    } else if (error instanceof UncoveredCaseError) {
+      await enqueueTelegramMessage({
+        type: 'uncovered_case',
+        vin: error.vin,
+        question: error.question,
+        vehicleTrim: error.vehicleTrim,
+      });
+    } else {
+      await enqueueTelegramMessage({
+        type: 'job_failure',
+        vin,
+        jobId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  } catch (telegramError) {
+    console.error(`Failed to enqueue Telegram error notification for job ${jobId}:`, telegramError);
+  }
+}
 
-
-/**
- * Wrapper processor that checks for blocked VINs before processing
- * If VIN is blocked, pauses the job instead of processing it
- */
 async function processJobWithBlockedVinCheck(
   job: Job<DCUpdateJobData>,
 ): Promise<any> {
   const { record } = job.data;
 
-  // Check if VIN is blocked before processing
   const blocked = await isVinBlocked(record.vin);
   if (blocked) {
     const details = await getBlockedVinDetails(record.vin);
@@ -34,10 +52,8 @@ async function processJobWithBlockedVinCheck(
       `\n🚫 VIN ${record.vin} is blocked. Pausing job ${job.id}. Reason: ${reason}`,
     );
 
-    // Pause this job (and any other jobs for this VIN) to prevent retries
     await pauseJobsForBlockedVin(record.vin);
 
-    // Queue Telegram alert about blocked VIN attempt
     if (details) {
       await enqueueTelegramMessage({
         type: 'blocked_vin_attempt',
@@ -46,12 +62,15 @@ async function processJobWithBlockedVinCheck(
       });
     }
 
-    // Throw BlockedVinError to signal that job should not be retried
     throw new BlockedVinError(record.vin, reason);
   }
 
-  // VIN is not blocked, proceed with normal processing
-  return processDCUpdateJob(job);
+  try {
+    return await processDCUpdateJob(job);
+  } catch (error) {
+    await reportJobError(error, record.vin, job.id);
+    throw error;
+  }
 }
 
 async function main(): Promise<void> {
