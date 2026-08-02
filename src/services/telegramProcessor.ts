@@ -116,9 +116,9 @@ export async function processTelegramMessage(
           throw new Error('Missing required fields for dc_sync_completed notification');
         }
         const { compFilters, pricingSummary } = dcSyncDetails;
-        const odometerRange = compFilters.odometerMin !== null && compFilters.odometerMax !== null
-          ? `${compFilters.odometerMin.toLocaleString()} - ${compFilters.odometerMax.toLocaleString()} mi`
-          : 'N/A';
+        const odometerMin = compFilters.odometerMin ?? 0;
+        const odometerMax = compFilters.odometerMax?.toLocaleString() ?? 'MAX';
+        const odometerRange = `${Math.max(0, odometerMin).toLocaleString()} - ${odometerMax} mi`;
         
         const dcSyncMessage = `✅ <b>DC Sync Completed</b>\n\n` +
           `VIN: <code>${vin}</code>\n` +

@@ -8,6 +8,7 @@ import { processDCUpdateJob } from '../services/jobProcessor';
 import { DC_UPDATE_QUEUE, DC_UPDATE_JOB, DCUpdateJobData } from '../types/job.types';
 import { BlockedVinError } from '../errors/blockedVinError';
 import { MfaRequiredError } from '../errors/mfaRequiredError';
+import { NoBrowserError } from '../errors/noBrowserError';
 import { UncoveredCaseError } from '../errors/uncoveredCaseError';
 import { isVinBlocked, getBlockedVinDetails } from '../services/blockedVins';
 import { pauseJobsForBlockedVin, getDCUpdateQueue } from '../services/jobQueue';
@@ -19,6 +20,12 @@ async function reportJobError(error: unknown, vin: string, jobId?: string): Prom
   try {
     if (error instanceof MfaRequiredError) {
       await enqueueTelegramMessage({ type: 'mfa_required' });
+    } else if (error instanceof NoBrowserError) {
+      await enqueueTelegramMessage({
+        type: 'system_health',
+        component: 'browser',
+        status: error.message,
+      });
     } else if (error instanceof UncoveredCaseError) {
       await enqueueTelegramMessage({
         type: 'uncovered_case',

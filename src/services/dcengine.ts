@@ -10,6 +10,7 @@ import { findBestMatch } from '../utils/stringSimilarity';
 import { UncoveredCaseError } from '../errors/uncoveredCaseError';
 import { NoVehicleDataError } from '../errors/noVehicleDataError';
 import { MfaRequiredError } from '../errors/mfaRequiredError';
+import { NoBrowserError } from '@errors/noBrowserError';
 
 const FILTER_LOG_PREFIX = '[MarketFilters]';
 const LOCATION_RADIUS_PRESET = [
@@ -100,8 +101,14 @@ export class DCEngine {
     return loginPromise;
   }
   async openScraper() {
-    const page = await this.window.connectRemote(19203);
-    return page;
+    try{
+
+      const page = await this.window.connectRemote(19203);
+      return page;
+    } catch (e){
+      console.log(e, typeof e);
+      throw new NoBrowserError(); 
+    }
   }
   async login(page: Page, attempt: number = 1): Promise<void> {
     const MAX_LOGIN_NAV_ATTEMPTS = 3;
@@ -1463,6 +1470,7 @@ export class DCEngine {
         vehicleInfo,
       },
     );
+    console.log(JSON.stringify(marketLookupData, null , 2))
     const count = marketLookupData.marketDaysSupplyResponse.matching;
     return { filters: filtersSnapshot, marketLookupData, count };
   }

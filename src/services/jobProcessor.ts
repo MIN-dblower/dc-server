@@ -12,6 +12,7 @@ import { isVinBlocked, getBlockedVinDetails } from './blockedVins';
 import { pauseJobsForBlockedVin } from './jobQueue';
 import { enqueueTelegramMessage } from './telegramQueue';
 import { BlockedVinError } from '../errors/blockedVinError';
+import { DebugError } from '../errors/debugError';
 import { toTitleCase } from '@utils/string';
 
 function isAdesaRecord(record: AdesaRecord | EdgePipelineRecord): record is AdesaRecord {
@@ -36,7 +37,7 @@ export async function processDCUpdateJob(
   if (!dcResult.success) {
     const errorMessage = dcResult.error || 'Unknown DC update error';
     console.error(`❌ DC update failed for VIN ${record.vin}: ${errorMessage}`);
-    throw new Error(errorMessage);
+    throw new DebugError(errorMessage);
   }
 
   if (isAdesaRecord(record)) {
