@@ -11,7 +11,7 @@ import { getTelegramService } from './telegramBot';
 export async function processTelegramMessage(
   job: Job<TelegramMessageJobData>,
 ): Promise<void> {
-  const { type, vin, question, vehicleTrim, jobId, error, queueLength, oldestJobTime, component, status, details } = job.data;
+  const { type, vin, question, vehicleTrim, jobId, error, queueLength, oldestJobTime, component, status, details, email, errorType, timestamp } = job.data;
   const telegramService = getTelegramService();
 
   try {
@@ -137,6 +137,19 @@ export async function processTelegramMessage(
             `  Recon Cost: $${pricingSummary.reconCost.toLocaleString()}\n` : '') +
           `\nTime: ${new Date().toISOString()}`;
         await telegramService.sendMessage(dcSyncMessage);
+        break;
+
+      case 'appraisal_failure_callback_email':
+        if (!vin || !email || !errorType) {
+          throw new Error('Missing required fields for appraisal_failure_callback_email alert');
+        }
+        const appraisalFailureMessage =
+          `❌ <b>Appraisal Failure</b>\n\n` +
+          `VIN: <code>${vin}</code>\n` +
+          `Error Type: <code>${errorType}</code>\n` +
+          `User Email: <code>${email}</code>\n` +
+          `Time: ${timestamp ?? new Date().toISOString()}`;
+        await telegramService.sendMessage(appraisalFailureMessage);
         break;
 
       default:

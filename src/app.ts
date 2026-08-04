@@ -3,7 +3,7 @@ import path from 'path';
 import { createBullBoard } from '@bull-board/api';
 import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
 import { ExpressAdapter } from '@bull-board/express';
-import { userPromptSchema } from './interfaces/dealercenter.validation';
+import { getBookRequestSchema, notifyRequestSchema } from './interfaces/dealercenter.validation';
 import _ from 'lodash';
 import { processAuctionCSVContent } from './services/auctionFileProcessor';
 import { processAdesaCSVContent } from './services/adesaFileProcessor';
@@ -78,16 +78,12 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 app.post('/getBook', async (req: any, res: any) => {
-  const { vin, prompts } = req.body;
-  try {
-    userPromptSchema.parse(prompts || []);
-  } catch {
-    res.status(400).json({
-      status: 'failed',
-      message: 'Incorrect format for prompts',
-    });
+  const parsed = getBookRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ status: 'failed', message: 'Incorrect format for prompts' });
     return;
   }
+  const { vin, prompts } = parsed.data;
 
   try {
     const page = await scraper.openScraper();
@@ -105,6 +101,7 @@ app.post('/getBook', async (req: any, res: any) => {
         if (loginError instanceof MfaRequiredError) {
           res.status(200).json({
             success: false,
+            errorType: 'login',
             error: loginError.message,
           });
           return;
@@ -127,6 +124,7 @@ app.post('/getBook', async (req: any, res: any) => {
 
           res.status(200).json({
             success: false,
+            errorType: 'login',
             error: loginError.message,
           });
           return;
@@ -146,6 +144,7 @@ app.post('/getBook', async (req: any, res: any) => {
 
         res.status(200).json({
           success: false,
+          errorType: 'login',
           error: `Login failed: ${errorMessage}`,
         });
         return;
@@ -205,6 +204,7 @@ app.post('/getBook', async (req: any, res: any) => {
     } catch (e) {
       res.status(400).json({
         isCompleted: false,
+        errorType: 'runtime',
         error: _.get(e, 'message', 'Something went wrong'),
       });
       return;
@@ -218,6 +218,26 @@ app.post('/getBook', async (req: any, res: any) => {
 
 });
 
+
+app.get('/health', async (_req: any, res: any) => {
+  const authenticated = await scraper.checkAuthenticated().catch(() => false);
+  res.status(200).json({
+    status: 'healthy',
+    authenticated,
+  });
+});
+
+app.post('/notify', async (req: any, res: any) => {
+  const parsed = notifyRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ ok: false, error: parsed.error.issues[0]?.message ?? 'Invalid request' });
+    return;
+  }
+
+  const { type, vin, email, errorType, timestamp } = parsed.data;
+  await enqueueTelegramMessage({ type, vin, email, errorType, timestamp });
+  res.status(200).json({ ok: true });
+});
 
 // Global authentication for all HTTP endpoints
 app.use(basicAuthMiddleware);

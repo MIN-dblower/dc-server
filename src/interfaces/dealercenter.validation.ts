@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-// Define the types for the checkbox and select schemas  
+// Define the types for the checkbox and select schemas
 
 const inputSchema = z.object({
     type: z.literal('input'),
@@ -36,5 +36,20 @@ const selectSchema = z.object({
 // Define a union schema for both  
 export const userPromptSchema = z.array(z.union([checkboxSchema, selectSchema, inputSchema]));
 
-// Type inference for valid inputs  
-export type UserAnswer = z.infer<typeof userPromptSchema>;  
+// Type inference for valid inputs
+export type UserAnswer = z.infer<typeof userPromptSchema>;
+
+export const getBookRequestSchema = z.object({
+  vin: z.string().min(1),
+  prompts: userPromptSchema.optional(),
+});
+export type GetBookRequest = z.infer<typeof getBookRequestSchema>;
+
+export const notifyRequestSchema = z.object({
+  type: z.literal('appraisal_failure_callback_email'),
+  vin: z.string().min(1),
+  email: z.string().email(),
+  errorType: z.string().min(1),
+  timestamp: z.string().optional(),
+});
+export type NotifyRequest = z.infer<typeof notifyRequestSchema>;

@@ -153,6 +153,12 @@ export class DCEngine {
     accessToken = token;
   }
 
+  async checkAuthenticated(): Promise<boolean> {
+    const page = await this.openScraper();
+    const token = await this.getToken(page);
+    return token != null;
+  }
+
   async getToken(page: Page) {
     try {
       console.log('AUTH: Validating token');
