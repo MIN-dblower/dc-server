@@ -14,6 +14,10 @@ import { DCEngine } from '@services/dcengine';
 import { attemptLoginWithRetry } from '@services/dc-auth';
 import { LoginError } from '@errors/loginError';
 import { MfaRequiredError } from '@errors/mfaRequiredError';
+import { UncoveredCaseError } from '@errors/uncoveredCaseError';
+import { NoCompFoundError } from '@errors/noCompFoundError';
+import { NoVehicleDataError } from '@errors/noVehicleDataError';
+import { NoBrowserError } from '@errors/noBrowserError';
 // Use require to avoid any TypeScript type dependency on multer
 // tslint:disable-next-line:no-var-requires
 const multer = require('multer');
@@ -97,8 +101,12 @@ app.post('/getBook', async (req: any, res: any) => {
         token = await attemptLoginWithRetry(scraper, page);
         console.log('✅ Login successful, token obtained');
       } catch (loginError) {
-        // MFA challenge - Telegram alert already sent by attemptLoginWithRetry
         if (loginError instanceof MfaRequiredError) {
+          await enqueueTelegramMessage({
+            type: 'mfa_required',
+            component: 'MFYC',
+            vin,
+          });
           res.status(200).json({
             success: false,
             errorType: 'login',
@@ -111,11 +119,11 @@ app.post('/getBook', async (req: any, res: any) => {
         if (loginError instanceof LoginError) {
           console.error(`Login failed after ${loginError.attempts} attempts`);
 
-          // Send Telegram alert for login failure after max retries
           await enqueueTelegramMessage({
             type: 'system_health',
-            component: 'DC Authentication',
+            component: 'MFYC → DC Authentication',
             status: `Login failed after ${loginError.maxAttempts} attempts. Last error: ${loginError.message}`,
+            vin,
             details: {
               attempts: loginError.attempts,
               maxAttempts: loginError.maxAttempts,
@@ -135,11 +143,11 @@ app.post('/getBook', async (req: any, res: any) => {
           loginError instanceof Error ? loginError.message : 'Unknown error';
         console.error('❌ Login failed:', loginError);
 
-        // Send Telegram alert for login failure
         await enqueueTelegramMessage({
           type: 'system_health',
-          component: 'DC Authentication',
-          status: `Login failed: ${errorMessage}.`,
+          component: 'MFYC → DC Authentication',
+          status: `Login failed: ${errorMessage}`,
+          vin,
         });
 
         res.status(200).json({
@@ -202,14 +210,62 @@ app.post('/getBook', async (req: any, res: any) => {
       });
 
     } catch (e) {
+      const errorMessage = _.get(e, 'message', 'Something went wrong');
+      if (e instanceof UncoveredCaseError) {
+        await enqueueTelegramMessage({
+          type: 'uncovered_case',
+          vin,
+          question: e.question,
+          vehicleTrim: e.vehicleTrim,
+        });
+      } else if (e instanceof NoCompFoundError) {
+        await enqueueTelegramMessage({
+          type: 'no_comp_found',
+          vin,
+          details: { vehicleCount: e.vehicleCount, inventoryId: e.inventoryId },
+        });
+      } else if (e instanceof NoVehicleDataError) {
+        await enqueueTelegramMessage({
+          type: 'no_vehicle_data',
+          vin,
+          details: { inventoryId: e.inventoryId },
+        });
+      } else {
+        await enqueueTelegramMessage({
+          type: 'system_health',
+          component: 'MFYC → GetBook',
+          status: errorMessage,
+          vin,
+        });
+      }
       res.status(400).json({
         isCompleted: false,
         errorType: 'runtime',
-        error: _.get(e, 'message', 'Something went wrong'),
+        error: errorMessage,
       });
       return;
 
     }
+  } catch (e) {
+    if (e instanceof NoBrowserError) {
+      await enqueueTelegramMessage({
+        type: 'no_browser',
+        component: 'MFYC',
+        vin,
+      });
+    } else {
+      await enqueueTelegramMessage({
+        type: 'system_health',
+        component: 'MFYC → GetBook',
+        status: _.get(e, 'message', 'Unexpected error'),
+        vin,
+      });
+    }
+    res.status(500).json({
+      isCompleted: false,
+      errorType: 'runtime',
+      error: _.get(e, 'message', 'Unexpected error'),
+    });
   } finally {
     scraper.close();
   }

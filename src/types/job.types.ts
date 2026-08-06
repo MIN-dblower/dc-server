@@ -38,7 +38,7 @@ export interface DCSyncCompletedDetails {
 }
 
 export interface TelegramMessageJobData {
-  type: 'uncovered_case' | 'blocked_vin_attempt' | 'job_failure' | 'queue_backup' | 'system_health' | 'auto_selection_mode' | 'dc_sync_completed' | 'mfa_required' | 'appraisal_failure_callback_email';
+  type: 'uncovered_case' | 'blocked_vin_attempt' | 'job_failure' | 'queue_backup' | 'system_health' | 'auto_selection_mode' | 'dc_sync_completed' | 'mfa_required' | 'appraisal_failure_callback_email' | 'no_comp_found' | 'no_vehicle_data' | 'no_browser';
   vin?: string;
   question?: any;
   vehicleTrim?: string;

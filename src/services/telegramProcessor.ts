@@ -75,6 +75,7 @@ export async function processTelegramMessage(
         }
         const healthMessage = `🚨 <b>System Health Alert</b>\n\n` +
           `Component: <code>${component}</code>\n` +
+          (vin ? `VIN: <code>${vin}</code>\n` : '') +
           `Status: <b>${status}</b>\n` +
           `Time: ${new Date().toISOString()}`;
         await telegramService.sendMessage(healthMessage);
@@ -104,6 +105,8 @@ export async function processTelegramMessage(
 
       case 'mfa_required':
         const mfaMessage = `🔐 <b>MFA Needed</b>\n\n` +
+          (component ? `Source: <code>${component}</code>\n` : '') +
+          (vin ? `VIN: <code>${vin}</code>\n` : '') +
           `DealerCenter login hit an MFA challenge and requires manual verification.\n` +
           `Please log in manually to complete MFA and unblock the sync worker.\n\n` +
           `Time: ${new Date().toISOString()}`;
@@ -137,6 +140,38 @@ export async function processTelegramMessage(
             `  Recon Cost: $${pricingSummary.reconCost.toLocaleString()}\n` : '') +
           `\nTime: ${new Date().toISOString()}`;
         await telegramService.sendMessage(dcSyncMessage);
+        break;
+
+      case 'no_comp_found':
+        if (!vin) {
+          throw new Error('Missing required fields for no_comp_found alert');
+        }
+        const noCompMessage = `🔍 <b>No Comparables Found</b>\n\n` +
+          `VIN: <code>${vin}</code>\n` +
+          (details?.vehicleCount !== undefined ? `Vehicle Count: ${details.vehicleCount}\n` : '') +
+          (details?.inventoryId ? `Inventory ID: <code>${details.inventoryId}</code>\n` : '') +
+          `Time: ${new Date().toISOString()}`;
+        await telegramService.sendMessage(noCompMessage);
+        break;
+
+      case 'no_vehicle_data':
+        if (!vin) {
+          throw new Error('Missing required fields for no_vehicle_data alert');
+        }
+        const noVehicleDataMessage = `⚠️ <b>No Vehicle Data</b>\n\n` +
+          `VIN: <code>${vin}</code>\n` +
+          (details?.inventoryId ? `Inventory ID: <code>${details.inventoryId}</code>\n` : '') +
+          `Time: ${new Date().toISOString()}`;
+        await telegramService.sendMessage(noVehicleDataMessage);
+        break;
+
+      case 'no_browser':
+        const noBrowserMessage = `🖥️ <b>Browser Unavailable</b>\n\n` +
+          (component ? `Source: <code>${component}</code>\n` : '') +
+          (vin ? `VIN: <code>${vin}</code>\n` : '') +
+          `Chrome remote debugging is unreachable. Please ensure the browser is running.\n\n` +
+          `Time: ${new Date().toISOString()}`;
+        await telegramService.sendMessage(noBrowserMessage);
         break;
 
       case 'appraisal_failure_callback_email':
