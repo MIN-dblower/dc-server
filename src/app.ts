@@ -107,7 +107,7 @@ app.post('/getBook', async (req: any, res: any) => {
             component: 'MFYC',
             vin,
           });
-          res.status(200).json({
+          res.status(400).json({
             success: false,
             errorType: 'login',
             error: loginError.message,
@@ -130,7 +130,7 @@ app.post('/getBook', async (req: any, res: any) => {
             },
           });
 
-          res.status(200).json({
+          res.status(400).json({
             success: false,
             errorType: 'login',
             error: loginError.message,
@@ -150,7 +150,7 @@ app.post('/getBook', async (req: any, res: any) => {
           vin,
         });
 
-        res.status(200).json({
+        res.status(400).json({
           success: false,
           errorType: 'login',
           error: `Login failed: ${errorMessage}`,
